@@ -1,0 +1,6 @@
+_target_: src.data.kaldi_dataset.build_kaldi_datamodule
+dataset_name: doreco
+data_dir: ${paths.download_dir}
+portable_wavscp: False
+batch_size: 32
+num_workers: 10
