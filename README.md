@@ -34,6 +34,23 @@ cd PhonBenchDev
 
 This codebase pulls datasets from the huggingface collection [https://huggingface.co/collections/changelinglab/prism](https://huggingface.co/collections/changelinglab/prism).
 
+### Activating the environment on FASRC (Harvard SLURM)
+
+After the one-time `setup_uv.sh` install, activate the environment in any new shell session with:
+
+```bash
+# 1. Get on a GPU compute node (skip if you're already on one)
+salloc -p gpu --gres=gpu:1 -c 8 --mem=32G -t 03:00:00
+
+# 2. cd into the project
+cd /n/netscratch/iqss_sponsored/Lab/zshi/PhonBenchDev
+
+# 3. Source the activation helper (must be `.` or `source`, NOT ./)
+. ./activate_env.sh
+```
+
+`activate_env.sh` sources the `.venv`, points HuggingFace / uv / pixi caches at netscratch (so they don't fill up the home-dir quota), loads the FASRC `ffmpeg`, `espeak-ng`, and `cuda` modules, and sets `PROJECT_ROOT` for the Hydra configs. It must be **sourced**, not executed — running it as `./activate_env.sh` will appear to do nothing because the activation would die with the subshell.
+
 
 ## How to run
 
