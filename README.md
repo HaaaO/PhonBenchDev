@@ -2,10 +2,10 @@ ______________________________________________________________________
 
 <div align="center">
 
-# PRiSM
+# PhonBench
 
-[![Paper](https://img.shields.io/badge/arXiv-2601.14046-b31b1b.svg)](https://arxiv.org/abs/2601.14046)
-<a href="https://huggingface.co/collections/changelinglab/prism"><img alt="Dataset" src="https://img.shields.io/badge/Dataset-PRiSM-FFD21E?logo=huggingface&logoColor=gold&logoPosition=right"></a>
+### Benchmarking Speech Foundation Models for Phone-Level Recognition of Children's Speech
+
 <a href="https://pytorch.org/get-started/locally/"><img alt="PyTorch" src="https://img.shields.io/badge/PyTorch-ee4c2c?logo=pytorch&logoColor=white"></a>
 <br>
 <!-- [![Conference](http://img.shields.io/badge/AnyConference-year-4b44ce.svg)](https://papers.nips.cc/paper/2020) -->
@@ -14,14 +14,16 @@ ______________________________________________________________________
 
 ## Description
 
-A benchmark for evaluating phonetic capabilities of speech models.
+**PhonBench** is a new project built on top of the [PRiSM](https://github.com/changelinglab/prism) codebase, extending it to benchmark speech foundation models for phone-level recognition of children's speech.
+
+The accompanying paper is titled **"PhonBench: Benchmarking Speech Foundation Models for Phone-Level Recognition of Children's Speech"**.
 
 ## 🚀 Quickstart
 
 ```bash
-# clone project
-git clone git@github.com:changelinglab/prism.git
-cd prism
+# clone the PhonBench project
+git clone <phonbench-repo-url>
+cd PhonBenchDev
 
 # create environment with your favourite package manager 
 # and install dependencies from requirements.txt
@@ -70,19 +72,9 @@ python src/main.py trainer.max_epochs=20 data.batch_size=64
 
 ## Citation
 
-If you use this code in your research, please cite our paper:
+If you use this work in your research, please cite the **PhonBench** paper: *"PhonBench: Benchmarking Speech Foundation Models for Phone-Level Recognition of Children's Speech"* (citation details forthcoming).
 
-```bibtex
-@misc{prism2026,
-      title={PRiSM: Benchmarking Phone Realization in Speech Models}, 
-      author={Shikhar Bharadwaj and Chin-Jou Li and Yoonjae Kim and Kwanghee Choi and Eunjung Yeo and Ryan Soh-Eun Shim and Hanyu Zhou and Brendon Boldt and Karen Rosero Jacome and Kalvin Chang and Darsh Agrawal and Keer Xu and Chao-Han Huck Yang and Jian Zhu and Shinji Watanabe and David R. Mortensen},
-      year={2026},
-      eprint={2601.14046},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL},
-      url={https://arxiv.org/abs/2601.14046}, 
-}
-```
+PhonBench reuses the codebase from the PRiSM project — please also cite and link to the original PRiSM paper: [PRiSM: Benchmarking Phone Realization in Speech Models](https://arxiv.org/abs/2601.14046).
 
 ## ❤️ Acknowledgement
 
