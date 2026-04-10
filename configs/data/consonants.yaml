@@ -1,0 +1,7 @@
+_target_: src.data.kaldi_dataset.build_kaldi_datamodule
+dataset_name: consonants
+dataset_config_path: /n/netscratch/iqss_sponsored/Lab/zshi/CONSONENTS/index.yaml
+data_dir: /n/netscratch/iqss_sponsored/Lab/zshi
+portable_wavscp: True
+batch_size: 32
+num_workers: 10

@@ -31,3 +31,8 @@ datasets:
     wav_scp: "test_voxangeles/wav.scp"
     text_phoneme: "test_voxangeles/text.good"
     language: "test_voxangeles/text"
+
+  consonants:
+      wav_scp: "test_consonants/wav.scp"                                       
+      text_phoneme: "test_consonants/text.good"
+      language: "test_consonants/text.lang" 

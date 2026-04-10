@@ -80,6 +80,112 @@ You can override any parameter from command line like this
 python src/main.py trainer.max_epochs=20 data.batch_size=64
 ```
 
+## Running all models on the Harvard dataset
+
+The Harvard `towre_words` data lives at `/n/netscratch/iqss_sponsored/Lab/zshi/harvard` with a Kaldi-style index at `harvard/index.yaml`. Each command below runs one model variant on that dataset using the generic `powsmeval` data config; only the experiment, model-specific args, and `task_name` change.
+
+### CTC / encoder–decoder models
+
+```bash
+# 1. PoWSM
+python src/main.py experiment=inference/transcribe_powsm \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  task_name=inf_towre_words_powsm
+
+# 2. PoWSM-CTC
+python src/main.py experiment=inference/transcribe_powsm_ctc \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  task_name=inf_towre_words_powsm_ctc
+
+# 3a. wav2vec2-phoneme — ctag
+python src/main.py experiment=inference/transcribe_w2v2ph \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.inference_runner.hf_repo=ctaguchi/wav2vec2-large-xlsr-japlmthufielta-ipa1000-ns \
+  task_name=inf_towre_words_ctag
+
+# 3b. wav2vec2-phoneme — lv60
+python src/main.py experiment=inference/transcribe_w2v2ph \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
+  task_name=inf_towre_words_lv60
+
+# 3c. wav2vec2-phoneme — xlsr53
+python src/main.py experiment=inference/transcribe_w2v2ph \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
+  task_name=inf_towre_words_xlsr53
+
+# 4a. ZipA-CTC
+python src/main.py experiment=inference/transcribe_zipactc \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-500k \
+  task_name=inf_towre_words_zipactc
+
+# 4b. ZipA-CTC (noisy student)
+python src/main.py experiment=inference/transcribe_zipactc \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+  task_name=inf_towre_words_zipactc_ns
+```
+
+### LLM-based models (require extra services)
+
+Qwen3-Omni runs need a vLLM server first (see `scripts/start_vllm.sh`); pass its port via `inference.port=`. Gemini needs `GEMINI_API_KEY` exported and forces `num_workers=1`.
+
+```bash
+# 5. Qwen3-Omni Instruct (vLLM)
+python src/main.py experiment=inference/transcribe_qweninstruct \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.port=8000 \
+  task_name=inf_towre_words_qweni
+
+# 6. Qwen3-Omni Thinking (vLLM)
+python src/main.py experiment=inference/transcribe_qwenthinking \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True inference.num_workers=4 \
+  inference.port=8000 \
+  task_name=inf_towre_words_qwent
+
+# 7. Gemini 2.5 Flash
+GEMINI_API_KEY=... python src/main.py experiment=inference/transcribe_gemini \
+  data=powsmeval data.dataset_name=towre_words \
+  data.dataset_config_path=/n/netscratch/iqss_sponsored/Lab/zshi/harvard/index.yaml \
+  data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/harvard \
+  data.portable_wavscp=True \
+  task_name=inf_towre_words_gemini
+```
+
+Notes:
+- These launch as plain `python src/main.py` on the current node — wrap each in `sbatch` for FASRC GPU scheduling.
+- `inference.num_workers=4` is conservative; the configs default higher (`powsm:10`, `w2v2ph/zipactc:15`). Bump up if you have the GPU memory.
+- The model list mirrors `scripts/run.sh:68-82`.
+
 ## More Documentation
 
 - **[Features & Capabilities](docs/features.md)** - Look at this to train on multi-gpu, run hyper-param searches etc.
