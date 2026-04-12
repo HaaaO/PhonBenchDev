@@ -64,3 +64,6 @@ epitran==1.34.0
 
 # API-based models
 google-genai==1.54.0
+
+# AWS Polly (optional: scripts/synthesize_phonetic_errors.py --tts-backend polly)
+boto3>=1.34.0

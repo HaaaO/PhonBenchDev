@@ -158,3 +158,6 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+# Synthetic phonetic audio + manifests (Polly / espeak; see scripts/synthesize_phonetic_errors.py)
+outputs/synthetic_phonetic*/
