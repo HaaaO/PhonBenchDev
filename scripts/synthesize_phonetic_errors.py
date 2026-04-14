@@ -388,6 +388,8 @@ def main() -> None:
         epilog=(
             "AWS Polly: configure SSO once (`aws configure sso`, region us-west-2), then "
             "`aws sso login` before running with `--tts-backend polly`. "
+            "Default Polly engine is generative with PCM at 16 kHz (AWS allows only 8000/16000 for pcm). "
+            "Use --polly-engine neural if a voice rejects generative. "
             "Do not paste temporary access keys into the repo or chat—rotate them if exposed."
         ),
     )
@@ -443,15 +445,15 @@ def main() -> None:
     parser.add_argument(
         "--polly-engine",
         type=str,
-        default="neural",
-        help="Polly engine: neural | standard | long-form | generative (voice-dependent).",
+        default="generative",
+        help="Polly engine: generative (default) | neural | standard | long-form (voice/region dependent).",
     )
     parser.add_argument(
         "--polly-sample-rate",
         type=str,
         default="16000",
-        choices=["8000", "16000", "22050", "24000"],
-        help="PCM sample rate for Polly output.",
+        choices=["8000", "16000"],
+        help="PCM sample rate for Polly (OutputFormat=pcm allows only 8000 or 16000 per AWS API).",
     )
     parser.add_argument(
         "--aws-region",
