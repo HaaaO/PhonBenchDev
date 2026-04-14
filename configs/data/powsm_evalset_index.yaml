@@ -35,4 +35,9 @@ datasets:
   consonants:
       wav_scp: "test_consonants/wav.scp"                                       
       text_phoneme: "test_consonants/text.good"
-      language: "test_consonants/text.lang" 
+      language: "test_consonants/text.lang"
+
+  test_synthetic_phonetic:
+    wav_scp: "test_synthetic_phonetic/wav.scp"
+    text_phoneme: "test_synthetic_phonetic/text.good"
+    language: "test_synthetic_phonetic/text"

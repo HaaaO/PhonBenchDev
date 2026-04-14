@@ -1,3 +1,5 @@
+.DS_Store
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -158,3 +160,10 @@ configs/local/default.yaml
 
 # Aim logging
 .aim
+
+# Synthetic phonetic audio + manifests (Polly / espeak; see scripts/synthesize_phonetic_errors.py)
+outputs/synthetic_phonetic*/
+# Kaldi bundle from scripts/export_synthetic_kaldi.py (copies wavs)
+outputs/phonbench_kaldi_bundle/
+# Local archives under outputs/
+outputs/*.zip
