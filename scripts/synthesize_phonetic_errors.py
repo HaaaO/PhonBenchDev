@@ -10,10 +10,10 @@ import tempfile
 import wave
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Literal, Optional, Union
+from typing import Any, Callable, Dict, List, Literal, Optional, Union
 
 AudioLayout = Literal["flat", "by_pattern"]
-TTSBackend = Literal["espeak", "polly"]
+TTSBackend = Literal["espeak", "polly", "kokoro"]
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -365,6 +365,40 @@ def synthesize_polly_ipa(
     pcm = stream.read()
     _pcm_to_wav(pcm, wav_path, sample_rate=int(sample_rate))
 
+def synthesize_kokoro_ipa(
+    ipa: str,
+    wav_path: Path,
+    *,
+    voice: str = "af_heart",
+    speed: float = 1.0,
+    sample_rate: int = 24000,
+    pipeline: Optional[Any] = None,
+) -> None:
+    try:
+        from kokoro import KPipeline
+        import soundfile as sf
+        import numpy as np
+    except ImportError as e:
+        raise RuntimeError("Install kokoro and soundfile: pip install 'kokoro>=0.9.2' soundfile") from e
+
+    if pipeline is None:
+        pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+    wav_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Raw IPA phoneme string (Kokoro 0.9+: generate_from_tokens, not __call__(..., ps=...))
+    chunks = []
+    for result in pipeline.generate_from_tokens(ipa, voice=voice, speed=speed):
+        audio = result.audio
+        if audio is not None and len(audio) > 0:
+            if hasattr(audio, "detach"):
+                audio = audio.detach().cpu().numpy()
+            chunks.append(np.asarray(audio, dtype=np.float32))
+
+    if not chunks:
+        raise RuntimeError(f"Kokoro produced no audio for IPA: {ipa!r}")
+
+    combined = np.concatenate(chunks)
+    sf.write(str(wav_path), combined, sample_rate)
 
 def resolve_wav_path(
     wav_dir: Path, layout: AudioLayout, pattern_id: str, stem: str
@@ -402,8 +436,10 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=PROJECT_ROOT / "outputs/synthetic_phonetic",
-        help="Writes manifest.jsonl under audio/ (see --audio-layout).",
+        default=None,
+        help="Root for manifest.jsonl + wav/ (see --audio-layout). "
+        "Default depends on --tts-backend: outputs/synthetic_phonetic (espeak/polly) vs "
+        "outputs/synthetic_phonetic_kokoro (kokoro), so backends do not clobber each other.",
     )
     parser.add_argument(
         "--patterns",
@@ -424,10 +460,14 @@ def main() -> None:
     parser.add_argument(
         "--tts-backend",
         type=str,
-        choices=["espeak", "polly"],
+        choices=["espeak", "polly", "kokoro"],
         default="espeak",
-        help="espeak-ng (local) or Amazon Polly (needs boto3 + AWS creds / SSO).",
+        help="espeak-ng, Amazon Polly, or Kokoro (pip install kokoro soundfile; Python <3.13).",
     )
+    parser.add_argument("--kokoro-voice", type=str, default="af_heart",
+        help="Kokoro voice id (e.g. af_heart, af_bella, am_adam).")
+    parser.add_argument("--kokoro-speed", type=float, default=1.0,
+        help="Kokoro speech rate multiplier.")
     parser.add_argument(
         "--audio-layout",
         type=str,
@@ -464,6 +504,13 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="If >0, only first N words.")
     args = parser.parse_args()
 
+    if args.output_dir is None:
+        args.output_dir = (
+            PROJECT_ROOT / "outputs/synthetic_phonetic_kokoro"
+            if args.tts_backend == "kokoro"
+            else PROJECT_ROOT / "outputs/synthetic_phonetic"
+        )
+
     try:
         from g2p_en import G2p
     except ImportError as e:
@@ -492,6 +539,17 @@ def main() -> None:
 
     manifest_path = out_dir / "manifest.jsonl"
     rows_written = 0
+    kokoro_pipeline = None
+    if args.synthesize and backend == "kokoro":
+        try:
+            from kokoro import KPipeline
+        except ImportError as e:
+            raise SystemExit(
+                "Kokoro backend requires: pip install 'kokoro>=0.9.2' soundfile "
+                "(Python 3.10–3.12; kokoro does not support 3.13+ yet)."
+            ) from e
+        kokoro_pipeline = KPipeline(lang_code="a", repo_id="hexgrad/Kokoro-82M")
+
     with manifest_path.open("w", encoding="utf-8") as mf:
         for entry in entries:
             word = entry["word"]
@@ -547,6 +605,14 @@ def main() -> None:
                                 engine=args.polly_engine,
                                 region=args.aws_region,
                                 sample_rate=args.polly_sample_rate,
+                            )
+                        elif backend == "kokoro":
+                            synthesize_kokoro_ipa(
+                                ipa,
+                                wav_path,
+                                voice=args.kokoro_voice,
+                                speed=args.kokoro_speed,
+                                pipeline=kokoro_pipeline,
                             )
                         else:
                             synthesize_espeak_ipa(ipa, wav_path, voice=args.voice)
