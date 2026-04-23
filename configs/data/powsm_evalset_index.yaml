@@ -33,6 +33,11 @@ datasets:
     language: "test_voxangeles/text"
 
   consonants:
-      wav_scp: "test_consonants/wav.scp"                                       
+      wav_scp: "test_consonants/wav.scp"
       text_phoneme: "test_consonants/text.good"
-      language: "test_consonants/text.lang" 
+      language: "test_consonants/text.lang"
+
+  cmu_kids:
+    wav_scp: "cmu_kids_kaldi/wav.scp"
+    text_phoneme: "cmu_kids_kaldi/text.good"
+    language: "cmu_kids_kaldi/text.lang"
