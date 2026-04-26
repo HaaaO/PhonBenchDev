@@ -101,10 +101,15 @@ class PhoneRecognitionEvaluator:
 
     @staticmethod
     def clean_text(s: str) -> str:
-        """Normalize IPA text: remove spaces/punct, NFC->NFD, fix 'g'→'ɡ'."""
+        """Normalize IPA text: remove spaces/punct, NFC->NFD, fix 'g'→'ɡ',
+        remap precomposed rhotic schwa ɚ/ɝ to decomposed ə˞/ɜ˞ so panphon
+        recognizes them (panphon.ipa_segs('ɚ') returns []).
+        """
         s = s.replace(" ", "").translate(str.maketrans("", "", string.punctuation))
         s = unicodedata.normalize("NFD", s)
-        return s.replace("g", "ɡ").strip()
+        s = s.replace("g", "ɡ")
+        s = s.replace("ɚ", "ə˞").replace("ɝ", "ɜ˞")
+        return s.strip()
 
     def _prepare(self, text: str) -> str:
         return self.clean_text(text) if self.normalize_ipa else text

@@ -1,0 +1,3 @@
+_target_: src.model.babar.builders.build_babar_model
+ckpt_path: ${paths.download_dir}/babar/best.ckpt
+vocab_path: ${paths.download_dir}/babar/vocab-phoneme-tinyvox.json

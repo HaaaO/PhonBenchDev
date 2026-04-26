@@ -1,0 +1,34 @@
+# @package _global_
+
+# Run inference with BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained).
+# Example:
+#   python src/main.py \
+#     experiment=inference/transcribe_babar \
+#     data=powsmeval data.dataset_name=cmu_kids \
+#     data.data_dir=/n/iqss_sponsored/Lab/zshi/prism-evalsets \
+#     data.portable_wavscp=True \
+#     task_name=inf_cmu_kids_babar
+
+defaults:
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["babar", "inference", "ctc"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  num_workers: 5
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym"]
+  out_file: ${paths.output_dir}/transcription.json
+  inference_runner:
+    _target_: src.model.babar.builders.build_babar_inference
+    ckpt_path: ${paths.download_dir}/babar/best.ckpt
+    vocab_path: ${paths.download_dir}/babar/vocab-phoneme-tinyvox.json
+    device: cuda

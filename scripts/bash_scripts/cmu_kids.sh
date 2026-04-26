@@ -75,14 +75,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_ctag_${TAG}
 
 # 6. ZIPA-CTC
-python src/main.py \
-    experiment=inference/transcribe_zipactc \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-500k \
-    task_name=inf_${DATASET}_zipactc_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_zipactc \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-500k \
+#     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # 7. ZIPA-CTC-NS
 python src/main.py \
@@ -103,11 +103,20 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gemini_${TAG}
 
+# 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
+python src/main.py \
+    experiment=inference/transcribe_babar \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_babar_${TAG}
+
 # ===== Scoring ================================================================
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini babar)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"
