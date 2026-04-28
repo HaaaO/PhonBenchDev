@@ -41,3 +41,8 @@ datasets:
     wav_scp: "cmu_kids_kaldi/wav.scp"
     text_phoneme: "cmu_kids_kaldi/text.good"
     language: "cmu_kids_kaldi/text.lang"
+
+  test_synthetic_phonetic:
+    wav_scp: "test_synthetic_phonetic/wav.scp"
+    text_phoneme: "test_synthetic_phonetic/text.good"
+    language: "test_synthetic_phonetic/text.lang"

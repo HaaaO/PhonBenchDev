@@ -46,8 +46,8 @@ Usage:
 import argparse
 import string
 import json
-from dataclasses import dataclass
-from typing import Dict, Tuple, Any, Union
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Tuple, Any, Union
 from tqdm import tqdm
 import unicodedata
 from collections import Counter
@@ -55,6 +55,7 @@ from itertools import chain, combinations
 
 import panphon
 import panphon.distance
+from kaldialign import align as _ka_align, edit_distance as _ka_edit_distance
 from phone_inventory_metric import get_metrics as get_inventory_metrics
 from phone_inventory_metric.common import setkeydict
 from rich.console import Console
@@ -63,6 +64,82 @@ from rich.table import Table
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
+
+
+MDD_BLANK = "-"
+
+
+def _levenshtein_align(
+    seq_a: List[str], seq_b: List[str], blank: str = MDD_BLANK
+) -> Tuple[List[str], List[str]]:
+    """Levenshtein-align two phone sequences via kaldialign.
+
+    Returns a pair of equal-length lists where indels are filled with `blank`.
+    Edit distance is identical to a hand-rolled DP, but when multiple optimal
+    alignments exist kaldialign's tiebreak may differ from a purely
+    match-first/sub-next walk.
+    """
+    if not seq_a and not seq_b:
+        return [], []
+    pairs = _ka_align(seq_a, seq_b, blank)
+    a_aligned = [p[0] for p in pairs]
+    b_aligned = [p[1] for p in pairs]
+    return a_aligned, b_aligned
+
+
+def _correctness_vector(
+    prompted: List[str], aligned_other: List[str], blank: str = MDD_BLANK
+) -> List[str]:
+    """Walk Levenshtein ops between `prompted` and `aligned_other`; emit C/E
+    per op. Apply the blank-insertion rule: an insertion on the other side is
+    correct (C) when that other-side phoneme is the blank produced by the U/P
+    base alignment.
+    """
+    p_aln, o_aln = _levenshtein_align(prompted, aligned_other, blank=blank)
+    labels: List[str] = []
+    for p_sym, o_sym in zip(p_aln, o_aln):
+        if p_sym == blank:
+            labels.append("C" if o_sym == blank else "E")
+        elif o_sym == blank:
+            labels.append("E")
+        elif p_sym == o_sym:
+            labels.append("C")
+        else:
+            labels.append("E")
+    return labels
+
+
+def _mdd_counts(
+    prompted: List[str],
+    uttered: List[str],
+    predicted: List[str],
+    blank: str = MDD_BLANK,
+) -> Tuple[Dict[str, int], List[str], List[str]]:
+    """Compute MDD TR/TA/FR/FA per Roumeas et al. (HAL hal-04190328).
+
+    Returns (counts, corr_U, corr_P) where corr_U/corr_P are space-friendly
+    "C"/"E" lists for per-utt error analysis.
+    """
+    counts = {"TR": 0, "TA": 0, "FR": 0, "FA": 0}
+    if not prompted and not uttered and not predicted:
+        return counts, [], []
+    U_aligned, P_aligned = _levenshtein_align(uttered, predicted, blank=blank)
+    corr_U = _correctness_vector(prompted, U_aligned, blank=blank)
+    corr_P = _correctness_vector(prompted, P_aligned, blank=blank)
+    if len(corr_U) != len(corr_P):
+        L = max(len(corr_U), len(corr_P))
+        corr_U = corr_U + ["C"] * (L - len(corr_U))
+        corr_P = corr_P + ["C"] * (L - len(corr_P))
+    for cu, cp in zip(corr_U, corr_P):
+        if cu == "E" and cp == "E":
+            counts["TR"] += 1
+        elif cu == "C" and cp == "C":
+            counts["TA"] += 1
+        elif cu == "C" and cp == "E":
+            counts["FR"] += 1
+        elif cu == "E" and cp == "C":
+            counts["FA"] += 1
+    return counts, corr_U, corr_P
 
 
 @dataclass
@@ -79,6 +156,18 @@ class PhoneRecognitionSummary:
     N: int  # number of utterances
     phones: int  # total number of reference phones
     inventory: setkeydict[float]
+    # MDD aggregates — populated only when canonical IPA is provided.
+    has_mdd: bool = False
+    TR: int = 0
+    TA: int = 0
+    FR: int = 0
+    FA: int = 0
+    Detection_Accuracy: Optional[float] = None
+    FRR: Optional[float] = None
+    FAR: Optional[float] = None
+    MDD_Precision: Optional[float] = None
+    MDD_Recall: Optional[float] = None
+    MDD_F1: Optional[float] = None
 
 
 class PhoneRecognitionEvaluator:
@@ -114,48 +203,15 @@ class PhoneRecognitionEvaluator:
     def _prepare(self, text: str) -> str:
         return self.clean_text(text) if self.normalize_ipa else text
 
-    def _compute_sid_metrics(self, hyp: str, ref: str) -> Tuple[int, int, int]:
-        """Calculates substitution, insertion, deletion rates on phones."""
-        sub_errors = ins_errors = del_errors = 0
-        # dp
-        Hlen = len(hyp) + 1
-        Rlen = len(ref) + 1
-        D = [[0] * Rlen for _ in range(Hlen)]
-        for hi in range(Hlen):
-            D[hi][0] = hi
-        for rj in range(Rlen):
-            D[0][rj] = rj
-        for hi in range(1, Hlen):
-            for rj in range(1, Rlen):
-                cost = 0 if hyp[hi - 1] == ref[rj - 1] else 1
-                D[hi][rj] = min(
-                    D[hi - 1][rj] + 1,
-                    D[hi][rj - 1] + 1,
-                    D[hi - 1][rj - 1] + cost,
-                )
-        # backtrack
-        hi = Hlen - 1
-        rj = Rlen - 1
-        while hi > 0 or rj > 0:
-            if (
-                hi > 0
-                and rj > 0
-                and D[hi][rj] == D[hi - 1][rj - 1]
-                and hyp[hi - 1] == ref[rj - 1]
-            ):
-                hi -= 1
-                rj -= 1
-            elif hi > 0 and rj > 0 and D[hi][rj] == D[hi - 1][rj - 1] + 1:
-                sub_errors += 1
-                hi -= 1
-                rj -= 1
-            elif rj > 0 and D[hi][rj] == D[hi][rj - 1] + 1:
-                del_errors += 1
-                rj -= 1
-            else:
-                ins_errors += 1
-                hi -= 1
-        return sub_errors, ins_errors, del_errors
+    def _compute_sid_metrics(self, hyp: List[str], ref: List[str]) -> Tuple[int, int, int]:
+        """Substitution / insertion / deletion counts on phones via kaldialign.
+
+        `ins` = phones in hyp not in ref; `del` = phones in ref not in hyp.
+        """
+        if not hyp and not ref:
+            return 0, 0, 0
+        res = _ka_edit_distance(ref, hyp)
+        return res["sub"], res["ins"], res["del"]
 
     def _compute_utterance_metrics(
         self, hyp: str, ref: str
@@ -207,6 +263,32 @@ class PhoneRecognitionEvaluator:
             "n_phones": n_phones,
         }
         return out
+
+    def _compute_mdd(
+        self, prompted: str, uttered: str, predicted: str
+    ) -> Dict[str, Any]:
+        """Compute per-utt MDD counts. Returns dict with TR/TA/FR/FA plus the
+        prompted/uttered/predicted segment strings and corr_U/corr_P vectors
+        for downstream per-utt CSV writing.
+        """
+        p_clean = self._prepare(prompted)
+        u_clean = self._prepare(uttered)
+        h_clean = self._prepare(predicted)
+        p_segs = self.dst.fm.ipa_segs(p_clean)
+        u_segs = self.dst.fm.ipa_segs(u_clean)
+        h_segs = self.dst.fm.ipa_segs(h_clean)
+        counts, corr_U, corr_P = _mdd_counts(p_segs, u_segs, h_segs)
+        return {
+            "TR": counts["TR"],
+            "TA": counts["TA"],
+            "FR": counts["FR"],
+            "FA": counts["FA"],
+            "prompted": " ".join(p_segs),
+            "uttered": " ".join(u_segs),
+            "predicted": " ".join(h_segs),
+            "corr_U": " ".join(corr_U),
+            "corr_P": " ".join(corr_P),
+        }
 
     @classmethod
     def _get_phone_inventory_metrics(
@@ -280,7 +362,7 @@ class PhoneRecognitionEvaluator:
             )
             return empty_summary, {}
 
-        instance_metrics: Dict[str, Dict[str, float]] = {}
+        instance_metrics: Dict[str, Dict[str, Any]] = {}
 
         pfer_sum = 0.0
         fed_sum = 0.0
@@ -291,6 +373,10 @@ class PhoneRecognitionEvaluator:
         ins_err_sum = 0
         del_err_sum = 0
 
+        has_mdd = False
+        tr_sum = ta_sum = fr_sum = fa_sum = 0
+        missing_canonical = 0
+
         for utt_id, sample in tqdm(
             test_data.items(), total=len(test_data), desc="Evaluating", leave=False
         ):
@@ -299,7 +385,7 @@ class PhoneRecognitionEvaluator:
 
             out = self._compute_utterance_metrics(hyp, ref)
 
-            instance_metrics[utt_id] = out["metrics"]
+            instance_metrics[utt_id] = dict(out["metrics"])
             pfer_sum += out["pfer"]
             fed_sum += out["fed"]
             per_err_sum += out["per_errors"]
@@ -308,6 +394,24 @@ class PhoneRecognitionEvaluator:
             ins_err_sum += out["ins_errors"]
             del_err_sum += out["del_errors"]
             n_utts += 1
+
+            canonical = sample.get("canonical", None)
+            if canonical:
+                has_mdd = True
+                mdd = self._compute_mdd(canonical, ref, hyp)
+                tr_sum += mdd["TR"]
+                ta_sum += mdd["TA"]
+                fr_sum += mdd["FR"]
+                fa_sum += mdd["FA"]
+                instance_metrics[utt_id]["mdd"] = mdd
+            elif "canonical" in sample:
+                # canonical key present but empty → utt missing from text.canonical
+                missing_canonical += 1
+
+        if missing_canonical:
+            log.warning(
+                f"Skipped MDD scoring for {missing_canonical} utts missing from canonical file."
+            )
 
         summary = PhoneRecognitionSummary(
             PFER=pfer_sum / n_utts if n_utts > 0 else 0.0,
@@ -321,6 +425,35 @@ class PhoneRecognitionEvaluator:
             phones=phones_sum,
             inventory=self._get_phone_inventory_metrics(test_data),
         )
+
+        if has_mdd:
+            summary.has_mdd = True
+            summary.TR = tr_sum
+            summary.TA = ta_sum
+            summary.FR = fr_sum
+            summary.FA = fa_sum
+            total = tr_sum + ta_sum + fr_sum + fa_sum
+            if total > 0:
+                summary.Detection_Accuracy = (tr_sum + ta_sum) / total
+            if (fr_sum + ta_sum) > 0:
+                summary.FRR = fr_sum / (fr_sum + ta_sum)
+            if (fa_sum + tr_sum) > 0:
+                summary.FAR = fa_sum / (fa_sum + tr_sum)
+            if (tr_sum + fr_sum) > 0:
+                summary.MDD_Precision = tr_sum / (tr_sum + fr_sum)
+            if (tr_sum + fa_sum) > 0:
+                summary.MDD_Recall = tr_sum / (tr_sum + fa_sum)
+            if (
+                summary.MDD_Precision is not None
+                and summary.MDD_Recall is not None
+                and (summary.MDD_Precision + summary.MDD_Recall) > 0
+            ):
+                summary.MDD_F1 = (
+                    2
+                    * summary.MDD_Precision
+                    * summary.MDD_Recall
+                    / (summary.MDD_Precision + summary.MDD_Recall)
+                )
 
         return summary, instance_metrics
 
@@ -339,6 +472,18 @@ class PhoneRecognitionEvaluator:
         t.add_row("SUB (%)", f"{summary.SUB:.2f}")
         t.add_row("INS (%)", f"{summary.INS:.2f}")
         t.add_row("DEL (%)", f"{summary.DEL:.2f}")
+        if summary.has_mdd:
+            t.add_row("TR / TA / FR / FA", f"{summary.TR} / {summary.TA} / {summary.FR} / {summary.FA}")
+
+            def _f(v):
+                return f"{v:.4f}" if v is not None else "—"
+
+            t.add_row("Detection_Accuracy", _f(summary.Detection_Accuracy))
+            t.add_row("FRR", _f(summary.FRR))
+            t.add_row("FAR", _f(summary.FAR))
+            t.add_row("MDD_Precision", _f(summary.MDD_Precision))
+            t.add_row("MDD_Recall", _f(summary.MDD_Recall))
+            t.add_row("MDD_F1", _f(summary.MDD_F1))
         Console().print(t)
 
         PhoneRecognitionEvaluator.pretty_print_inventory_metrics(summary.inventory)
@@ -385,82 +530,114 @@ class PhoneRecognitionEvaluator:
         output_file: str,
         language: str,
     ) -> None:
-        """Append summary metrics to a CSV file."""
+        """Append summary metrics to a CSV file and a sibling readable .txt."""
         import csv
         import os
 
-        base_key_elements = ["exclusive", "max", "featured"]
-        base_keys = chain.from_iterable(
-            combinations(base_key_elements, n)
-            for n in range(len(base_key_elements) + 1)
-        )
-        inv_headers = []
-        inv_values = []
-        for base_key in base_keys:
-            if "featured" not in base_key and "exclusive" in base_key:
-                continue
-            label = "none" if not base_key else "_".join(base_key)
-            prefix = f"inv_{label}"
-            inv_headers.extend(
-                [f"{prefix}_f1", f"{prefix}_precision", f"{prefix}_recall"]
-            )
-            inv_values.extend(
-                [
-                    f"{summary.inventory[base_key + ('f1_score',)]:.3f}",
-                    f"{summary.inventory[base_key + ('precision',)]:.3f}",
-                    f"{summary.inventory[base_key + ('recall',)]:.3f}",
-                ]
-            )
+        headers = [
+            "eval_name",
+            "FER (%)",
+            "PER (%)",
+            "TR",
+            "TA",
+            "FR",
+            "FA",
+            "Detection_Accuracy",
+            "FRR",
+            "FAR",
+            "MDD_Precision",
+            "MDD_Recall",
+            "MDD_F1",
+        ]
 
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        def _fmt(v: Optional[float]) -> str:
+            return f"{v:.4f}" if v is not None else ""
+
+        if summary.has_mdd:
+            mdd_cells = [
+                summary.TR,
+                summary.TA,
+                summary.FR,
+                summary.FA,
+                _fmt(summary.Detection_Accuracy),
+                _fmt(summary.FRR),
+                _fmt(summary.FAR),
+                _fmt(summary.MDD_Precision),
+                _fmt(summary.MDD_Recall),
+                _fmt(summary.MDD_F1),
+            ]
+        else:
+            mdd_cells = [""] * 10
+
+        row = [
+            evalname,
+            f"{summary.FER:.2f}",
+            f"{summary.PER:.2f}",
+            *mdd_cells,
+        ]
+
+        os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
         write_header = (
             not os.path.exists(output_file) or os.path.getsize(output_file) == 0
         )
         with open(output_file, mode="a", newline="") as csvfile:
             writer = csv.writer(csvfile)
             if write_header:
-                writer.writerow(
-                    [
-                        "eval_name",
-                        "language",
-                        "N",
-                        "Total Phones",
-                        "PFER",
-                        "FER (%)",
-                        "FED",
-                        "PER (%)",
-                        "SUB (%)",
-                        "INS (%)",
-                        "DEL (%)",
-                    ]
-                    + inv_headers
-                )
-            writer.writerow(
-                [
-                    evalname,
-                    language,
-                    summary.N,
-                    summary.phones,
-                    f"{summary.PFER:.4f}",
-                    f"{summary.FER:.2f}",
-                    f"{summary.FED:.2f}",
-                    f"{summary.PER:.2f}",
-                    f"{summary.SUB:.2f}",
-                    f"{summary.INS:.2f}",
-                    f"{summary.DEL:.2f}",
-                ]
-                + inv_values
-            )
+                writer.writerow(headers)
+            writer.writerow(row)
+
+        txt_path = os.path.splitext(output_file)[0] + ".txt"
+        self._append_summary_txt(txt_path, headers, row)
+
+    @staticmethod
+    def _append_summary_txt(
+        txt_path: str, headers: List[str], row: List[Any]
+    ) -> None:
+        """Append a human-readable block mirroring the CSV row to `txt_path`."""
+        label_w = max(len(h) for h in headers)
+        bar = "=" * (label_w + 16)
+        lines = [bar, f"Evaluation: {row[0]}", "-" * len(bar)]
+        for h, v in list(zip(headers, row))[1:]:
+            lines.append(f"  {h:<{label_w}} : {v}")
+        lines.append(bar)
+        lines.append("")
+        with open(txt_path, "a") as f:
+            f.write("\n".join(lines) + "\n")
+
+
+def _load_canonical(canonical_file: str) -> Dict[str, str]:
+    """Parse Kaldi-style `text.canonical` (utt_id <space-separated-IPA>) into
+    {utt_id: ipa_string}. Lines without IPA map to empty string.
+    """
+    out: Dict[str, str] = {}
+    with open(canonical_file, "r") as f:
+        for line in f:
+            line = line.rstrip("\n")
+            if not line.strip():
+                continue
+            parts = line.split(maxsplit=1)
+            if len(parts) == 2:
+                out[parts[0]] = parts[1]
+            else:
+                out[parts[0]] = ""
+    return out
 
 
 def _load_predictions(
-    pred_file: str, language_field: str = None
+    pred_file: str,
+    language_field: str = None,
+    canonical_data: Optional[Dict[str, str]] = None,
+    canonical_field: Optional[str] = None,
 ) -> Dict[str, Dict[str, Dict[str, str]]]:
     """
     Loads prediction file from JSON format.
     The returned structure is:
-    {'language': { utt_id: {"prediction": str, "transcription": str}, ... }}
+    {'language': { utt_id: {"prediction": str, "transcription": str, "canonical": str}, ... }}
     If language_field is None, 'language' is set to the string '"combined"'.
+
+    `canonical_data` (utt_id -> ipa) takes precedence over `canonical_field`
+    (a passthrough field name). When neither is provided, the "canonical" key
+    is omitted so MDD scoring is skipped.
     """
     with open(pred_file, "r") as f:
         data = json.load(f)
@@ -476,10 +653,15 @@ def _load_predictions(
 
     all_languages = sorted(all_languages)
     print(f"Found {len(all_languages)} languages: {all_languages}")
+    has_canonical = canonical_data is not None or canonical_field is not None
     return_data = {}
     for lang in tqdm(all_languages, desc="Loading predictions"):
-        D = {
-            item["passthrough"][args.key_field]: {
+        D = {}
+        for _, item in data.items():
+            if item["passthrough"].get(language_field, "combined") != lang:
+                continue
+            utt_id = item["passthrough"][args.key_field]
+            sample: Dict[str, str] = {
                 "prediction": item["pred"][0][args.pred_field],
                 "transcription": (
                     item["passthrough"][args.gt_field]
@@ -493,11 +675,53 @@ def _load_predictions(
                     )
                 ),
             }
-            for _, item in data.items()
-            if item["passthrough"].get(language_field, "combined") == lang
-        }
+            if has_canonical:
+                if canonical_data is not None:
+                    sample["canonical"] = canonical_data.get(utt_id, "")
+                else:
+                    sample["canonical"] = item["passthrough"].get(
+                        canonical_field, ""
+                    )
+            D[utt_id] = sample
         return_data[lang] = D
     return return_data
+
+
+def write_mdd_per_utt_csv(
+    output_path: str, rows: List[Dict[str, Any]]
+) -> None:
+    """Write per-utt MDD rows to a CSV. Columns: eval_name, language, utt_id,
+    prompted, uttered, predicted, corr_U, corr_P, TR, TA, FR, FA.
+    """
+    import csv
+    import os
+
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    headers = [
+        "eval_name",
+        "language",
+        "utt_id",
+        "prompted",
+        "uttered",
+        "predicted",
+        "corr_U",
+        "corr_P",
+        "TR",
+        "TA",
+        "FR",
+        "FA",
+    ]
+    write_header = (
+        not os.path.exists(output_path) or os.path.getsize(output_path) == 0
+    )
+    with open(output_path, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(headers)
+        for r in rows:
+            writer.writerow([r.get(h, "") for h in headers])
 
 
 def add_args(parser: argparse.ArgumentParser) -> None:
@@ -539,28 +763,97 @@ def add_args(parser: argparse.ArgumentParser) -> None:
         "will be used to produce per language metrics.",
     )
     parser.add_argument("--evaluation_name", type=str, help="name for the evaluation")
+    parser.add_argument(
+        "--canonical_file",
+        type=str,
+        default=None,
+        help="Path to a Kaldi-style text.canonical (utt_id <space-separated-IPA>). "
+        "When provided, MDD metrics (TR/TA/FR/FA + derived) are computed.",
+    )
+    parser.add_argument(
+        "--canonical_field",
+        type=str,
+        default=None,
+        help="Read canonical IPA from passthrough[<field>] in the prediction "
+        "file. Mutually exclusive with --canonical_file.",
+    )
+    parser.add_argument(
+        "--mdd_per_utt_file",
+        type=str,
+        default=None,
+        help="Output path for per-utt MDD CSV. Defaults to <output_file_dir>/mdd_per_utt.csv.",
+    )
 
 
 if __name__ == "__main__":
+    import os
+
     parser = argparse.ArgumentParser()
     add_args(parser)
     args = parser.parse_args()
 
-    loaded_predictions = _load_predictions(args.prediction_file, args.language_field)
+    if args.canonical_file and args.canonical_field:
+        parser.error("--canonical_file and --canonical_field are mutually exclusive")
+
+    canonical_data: Optional[Dict[str, str]] = None
+    if args.canonical_file:
+        canonical_data = _load_canonical(args.canonical_file)
+        print(f"Loaded {len(canonical_data)} canonical entries from {args.canonical_file}")
+
+    loaded_predictions = _load_predictions(
+        args.prediction_file,
+        args.language_field,
+        canonical_data=canonical_data,
+        canonical_field=args.canonical_field,
+    )
     print(
         f"Loaded predictions for {len(loaded_predictions)} languages containing {sum(len(v) for v in loaded_predictions.values())} utterances."
     )
     inventories = []
     langs_used = list(loaded_predictions.keys())
+    mdd_per_utt_rows: List[Dict[str, Any]] = []
     for lang, preds in tqdm(loaded_predictions.items(), desc="Evaluating languages"):
         evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
-        summary, _ = evaluator.evaluate(preds)
+        summary, instance_metrics = evaluator.evaluate(preds)
         inventories.append(summary.inventory)
         if args.output_file:
             assert args.evaluation_name is not None, "Please provide --evaluation_name"
             write_file = args.output_file
             evaluator.write_to_csv(summary, args.evaluation_name, write_file, lang)
             print(f"Appended results to {write_file}")
+        if summary.has_mdd:
+            for utt_id, m in instance_metrics.items():
+                mdd = m.get("mdd")
+                if mdd is None:
+                    continue
+                mdd_per_utt_rows.append(
+                    {
+                        "eval_name": args.evaluation_name,
+                        "language": lang,
+                        "utt_id": utt_id,
+                        "prompted": mdd["prompted"],
+                        "uttered": mdd["uttered"],
+                        "predicted": mdd["predicted"],
+                        "corr_U": mdd["corr_U"],
+                        "corr_P": mdd["corr_P"],
+                        "TR": mdd["TR"],
+                        "TA": mdd["TA"],
+                        "FR": mdd["FR"],
+                        "FA": mdd["FA"],
+                    }
+                )
+
+    if mdd_per_utt_rows:
+        mdd_path = args.mdd_per_utt_file
+        if mdd_path is None and args.output_file:
+            mdd_path = os.path.join(
+                os.path.dirname(args.output_file) or ".", "mdd_per_utt.csv"
+            )
+        if mdd_path:
+            write_mdd_per_utt_csv(mdd_path, mdd_per_utt_rows)
+            print(f"Wrote {len(mdd_per_utt_rows)} per-utt MDD rows to {mdd_path}")
+        else:
+            print("Skipping per-utt MDD CSV (no --output_file or --mdd_per_utt_file)")
 
     all_keys = set().union(*[inv.keys() for inv in inventories])
     macro_inv_dict = {}
