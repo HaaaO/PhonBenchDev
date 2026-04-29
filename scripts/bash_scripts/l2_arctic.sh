@@ -21,7 +21,7 @@ cd /n/iqss_sponsored/Lab/zshi/PhonBenchDev
 source .venv/bin/activate
 
 DATA_DIR=/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets
-DATASET=l2arctic_perceived
+DATASET=test_l2arctic_perceived
 TAG=$(date +%Y%m%d_%H%M%S)
 
 # ===== Inference ==============================================================
@@ -43,13 +43,13 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_powsm_ctc_${TAG}
 
 # 3. W2V2P-LV60
-python src/main.py \
-    experiment=inference/transcribe_w2v2ph \
-    data=powsmeval \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
-    task_name=inf_${DATASET}_lv60_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_w2v2ph \
+#     data=powsmeval \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
+#     task_name=inf_${DATASET}_lv60_${TAG}
 
 # # 4. W2V2P-XLSR53
 # python src/main.py \
@@ -79,13 +79,13 @@ python src/main.py \
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # 7. ZIPA-CTC-NS
-# python src/main.py \
-#     experiment=inference/transcribe_zipactc \
-#     data=powsmeval \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
-#     task_name=inf_${DATASET}_zipactc_ns_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_zipactc \
+    data=powsmeval \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+    task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8. Gemini
 # python src/main.py \
@@ -130,7 +130,8 @@ for mv in "${MODELS[@]}"; do
         --gt_field target \
         --pred_field processed_transcript \
         --key_field utt_id \
-        --language_field lang_sym
+        --language_field lang_sym \
+        --canonical_file "$DATA_DIR/$DATASET/text.canonical"
     echo "    results: $run_dir/inventory_results.csv"
 done
 
