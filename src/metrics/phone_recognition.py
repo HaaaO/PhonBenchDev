@@ -89,24 +89,28 @@ def _levenshtein_align(
 
 def _correctness_vector(
     prompted: List[str], aligned_other: List[str], blank: str = MDD_BLANK
-) -> List[str]:
-    """Walk Levenshtein ops between `prompted` and `aligned_other`; emit C/E
-    per op. Apply the blank-insertion rule: an insertion on the other side is
-    correct (C) when that other-side phoneme is the blank produced by the U/P
-    base alignment.
+) -> List[Tuple[str, str]]:
+    """Walk Levenshtein ops between `prompted` and `aligned_other`; emit
+    `(label, o_sym)` per op where `label` is "C"/"E" and `o_sym` is the
+    other-side phoneme at that position (or `blank` for indels). The
+    other-side symbol is needed downstream to split TR into CD vs DE.
+    Apply the blank-insertion rule: an insertion on the other side is correct
+    (C) when that other-side phoneme is the blank produced by the U/P base
+    alignment.
     """
     p_aln, o_aln = _levenshtein_align(prompted, aligned_other, blank=blank)
-    labels: List[str] = []
+    out: List[Tuple[str, str]] = []
     for p_sym, o_sym in zip(p_aln, o_aln):
         if p_sym == blank:
-            labels.append("C" if o_sym == blank else "E")
+            label = "C" if o_sym == blank else "E"
         elif o_sym == blank:
-            labels.append("E")
+            label = "E"
         elif p_sym == o_sym:
-            labels.append("C")
+            label = "C"
         else:
-            labels.append("E")
-    return labels
+            label = "E"
+        out.append((label, o_sym))
+    return out
 
 
 def _mdd_counts(
@@ -115,30 +119,39 @@ def _mdd_counts(
     predicted: List[str],
     blank: str = MDD_BLANK,
 ) -> Tuple[Dict[str, int], List[str], List[str]]:
-    """Compute MDD TR/TA/FR/FA per Roumeas et al. (HAL hal-04190328).
+    """Compute MDD TR/TA/FR/FA per Roumeas et al. (HAL hal-04190328), plus
+    CD/DE — TR is split by whether the predicted phoneme matches the uttered
+    one (Correct Diagnosis) or differs (Diagnosis Error). TR is reported as
+    CD + DE.
 
     Returns (counts, corr_U, corr_P) where corr_U/corr_P are space-friendly
     "C"/"E" lists for per-utt error analysis.
     """
-    counts = {"TR": 0, "TA": 0, "FR": 0, "FA": 0}
+    counts = {"TR": 0, "TA": 0, "FR": 0, "FA": 0, "CD": 0, "DE": 0}
     if not prompted and not uttered and not predicted:
         return counts, [], []
     U_aligned, P_aligned = _levenshtein_align(uttered, predicted, blank=blank)
-    corr_U = _correctness_vector(prompted, U_aligned, blank=blank)
-    corr_P = _correctness_vector(prompted, P_aligned, blank=blank)
-    if len(corr_U) != len(corr_P):
-        L = max(len(corr_U), len(corr_P))
-        corr_U = corr_U + ["C"] * (L - len(corr_U))
-        corr_P = corr_P + ["C"] * (L - len(corr_P))
-    for cu, cp in zip(corr_U, corr_P):
+    cu_pairs = _correctness_vector(prompted, U_aligned, blank=blank)
+    cp_pairs = _correctness_vector(prompted, P_aligned, blank=blank)
+    if len(cu_pairs) != len(cp_pairs):
+        L = max(len(cu_pairs), len(cp_pairs))
+        cu_pairs = cu_pairs + [("C", blank)] * (L - len(cu_pairs))
+        cp_pairs = cp_pairs + [("C", blank)] * (L - len(cp_pairs))
+    for (cu, u_sym), (cp, h_sym) in zip(cu_pairs, cp_pairs):
         if cu == "E" and cp == "E":
-            counts["TR"] += 1
+            if u_sym == h_sym:
+                counts["CD"] += 1
+            else:
+                counts["DE"] += 1
         elif cu == "C" and cp == "C":
             counts["TA"] += 1
         elif cu == "C" and cp == "E":
             counts["FR"] += 1
         elif cu == "E" and cp == "C":
             counts["FA"] += 1
+    counts["TR"] = counts["CD"] + counts["DE"]
+    corr_U = [cu for cu, _ in cu_pairs]
+    corr_P = [cp for cp, _ in cp_pairs]
     return counts, corr_U, corr_P
 
 
@@ -162,12 +175,16 @@ class PhoneRecognitionSummary:
     TA: int = 0
     FR: int = 0
     FA: int = 0
+    CD: int = 0
+    DE: int = 0
     Detection_Accuracy: Optional[float] = None
     FRR: Optional[float] = None
     FAR: Optional[float] = None
     MDD_Precision: Optional[float] = None
     MDD_Recall: Optional[float] = None
     MDD_F1: Optional[float] = None
+    Diagnostic_Accuracy: Optional[float] = None
+    Diagnostic_Error_Rate: Optional[float] = None
 
 
 class PhoneRecognitionEvaluator:
@@ -283,6 +300,8 @@ class PhoneRecognitionEvaluator:
             "TA": counts["TA"],
             "FR": counts["FR"],
             "FA": counts["FA"],
+            "CD": counts["CD"],
+            "DE": counts["DE"],
             "prompted": " ".join(p_segs),
             "uttered": " ".join(u_segs),
             "predicted": " ".join(h_segs),
@@ -375,6 +394,7 @@ class PhoneRecognitionEvaluator:
 
         has_mdd = False
         tr_sum = ta_sum = fr_sum = fa_sum = 0
+        cd_sum = de_sum = 0
         missing_canonical = 0
 
         for utt_id, sample in tqdm(
@@ -403,6 +423,8 @@ class PhoneRecognitionEvaluator:
                 ta_sum += mdd["TA"]
                 fr_sum += mdd["FR"]
                 fa_sum += mdd["FA"]
+                cd_sum += mdd["CD"]
+                de_sum += mdd["DE"]
                 instance_metrics[utt_id]["mdd"] = mdd
             elif "canonical" in sample:
                 # canonical key present but empty → utt missing from text.canonical
@@ -432,6 +454,8 @@ class PhoneRecognitionEvaluator:
             summary.TA = ta_sum
             summary.FR = fr_sum
             summary.FA = fa_sum
+            summary.CD = cd_sum
+            summary.DE = de_sum
             total = tr_sum + ta_sum + fr_sum + fa_sum
             if total > 0:
                 summary.Detection_Accuracy = (tr_sum + ta_sum) / total
@@ -454,6 +478,9 @@ class PhoneRecognitionEvaluator:
                     * summary.MDD_Recall
                     / (summary.MDD_Precision + summary.MDD_Recall)
                 )
+            if tr_sum > 0:
+                summary.Diagnostic_Accuracy = cd_sum / tr_sum
+                summary.Diagnostic_Error_Rate = de_sum / tr_sum
 
         return summary, instance_metrics
 
@@ -474,6 +501,7 @@ class PhoneRecognitionEvaluator:
         t.add_row("DEL (%)", f"{summary.DEL:.2f}")
         if summary.has_mdd:
             t.add_row("TR / TA / FR / FA", f"{summary.TR} / {summary.TA} / {summary.FR} / {summary.FA}")
+            t.add_row("CD / DE", f"{summary.CD} / {summary.DE}")
 
             def _f(v):
                 return f"{v:.4f}" if v is not None else "—"
@@ -484,6 +512,8 @@ class PhoneRecognitionEvaluator:
             t.add_row("MDD_Precision", _f(summary.MDD_Precision))
             t.add_row("MDD_Recall", _f(summary.MDD_Recall))
             t.add_row("MDD_F1", _f(summary.MDD_F1))
+            t.add_row("Diagnostic_Accuracy", _f(summary.Diagnostic_Accuracy))
+            t.add_row("Diagnostic_Error_Rate", _f(summary.Diagnostic_Error_Rate))
         Console().print(t)
 
         PhoneRecognitionEvaluator.pretty_print_inventory_metrics(summary.inventory)
@@ -542,12 +572,16 @@ class PhoneRecognitionEvaluator:
             "TA",
             "FR",
             "FA",
+            "CD",
+            "DE",
             "Detection_Accuracy",
             "FRR",
             "FAR",
             "MDD_Precision",
             "MDD_Recall",
             "MDD_F1",
+            "Diagnostic_Accuracy",
+            "Diagnostic_Error_Rate",
         ]
 
         def _fmt(v: Optional[float]) -> str:
@@ -559,15 +593,19 @@ class PhoneRecognitionEvaluator:
                 summary.TA,
                 summary.FR,
                 summary.FA,
+                summary.CD,
+                summary.DE,
                 _fmt(summary.Detection_Accuracy),
                 _fmt(summary.FRR),
                 _fmt(summary.FAR),
                 _fmt(summary.MDD_Precision),
                 _fmt(summary.MDD_Recall),
                 _fmt(summary.MDD_F1),
+                _fmt(summary.Diagnostic_Accuracy),
+                _fmt(summary.Diagnostic_Error_Rate),
             ]
         else:
-            mdd_cells = [""] * 10
+            mdd_cells = [""] * 14
 
         row = [
             evalname,
@@ -712,6 +750,8 @@ def write_mdd_per_utt_csv(
         "TA",
         "FR",
         "FA",
+        "CD",
+        "DE",
     ]
     write_header = (
         not os.path.exists(output_path) or os.path.getsize(output_path) == 0
@@ -840,6 +880,8 @@ if __name__ == "__main__":
                         "TA": mdd["TA"],
                         "FR": mdd["FR"],
                         "FA": mdd["FA"],
+                        "CD": mdd["CD"],
+                        "DE": mdd["DE"],
                     }
                 )
 

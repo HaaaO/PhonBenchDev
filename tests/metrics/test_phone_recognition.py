@@ -112,6 +112,31 @@ def test_pretty_print(capsys):
     assert len(captured.out) > 0
 
 
+def test_evaluate_with_mdd_cd_de():
+    """Test MDD scoring with all five buckets (TA, FR, FA, CD, DE)."""
+    evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
+
+    test_data = {
+        "ta": {"prediction": "ab", "transcription": "ab", "canonical": "ab"},  # 2 TA
+        "fr": {"prediction": "ac", "transcription": "ab", "canonical": "ab"},  # 1 TA + 1 FR
+        "fa": {"prediction": "ab", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 FA
+        "cd": {"prediction": "ac", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 CD
+        "de": {"prediction": "ad", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 DE
+    }
+
+    summary, _ = evaluator.evaluate(test_data)
+
+    assert summary.has_mdd is True
+    assert summary.TA == 6  # 2 from "ta" + 1 each from fr/fa/cd/de
+    assert summary.FR == 1
+    assert summary.FA == 1
+    assert summary.CD == 1
+    assert summary.DE == 1
+    assert summary.TR == 2  # CD + DE
+    assert summary.Diagnostic_Accuracy == pytest.approx(0.5)
+    assert summary.Diagnostic_Error_Rate == pytest.approx(0.5)
+
+
 def test_evaluate_with_normalization():
     """Test evaluation with and without normalization."""
     test_data = {
