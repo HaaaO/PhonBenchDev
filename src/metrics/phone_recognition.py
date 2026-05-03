@@ -185,6 +185,7 @@ class PhoneRecognitionSummary:
     MDD_F1: Optional[float] = None
     Diagnostic_Accuracy: Optional[float] = None
     Diagnostic_Error_Rate: Optional[float] = None
+    True_Diagnostic_Accuracy: Optional[float] = None
 
 
 class PhoneRecognitionEvaluator:
@@ -481,6 +482,8 @@ class PhoneRecognitionEvaluator:
             if tr_sum > 0:
                 summary.Diagnostic_Accuracy = cd_sum / tr_sum
                 summary.Diagnostic_Error_Rate = de_sum / tr_sum
+            if (tr_sum + fa_sum) > 0:
+                summary.True_Diagnostic_Accuracy = cd_sum / (tr_sum + fa_sum)
 
         return summary, instance_metrics
 
@@ -514,6 +517,7 @@ class PhoneRecognitionEvaluator:
             t.add_row("MDD_F1", _f(summary.MDD_F1))
             t.add_row("Diagnostic_Accuracy", _f(summary.Diagnostic_Accuracy))
             t.add_row("Diagnostic_Error_Rate", _f(summary.Diagnostic_Error_Rate))
+            t.add_row("True_Diagnostic_Accuracy", _f(summary.True_Diagnostic_Accuracy))
         Console().print(t)
 
         PhoneRecognitionEvaluator.pretty_print_inventory_metrics(summary.inventory)
@@ -582,6 +586,7 @@ class PhoneRecognitionEvaluator:
             "MDD_F1",
             "Diagnostic_Accuracy",
             "Diagnostic_Error_Rate",
+            "True_Diagnostic_Accuracy",
         ]
 
         def _fmt(v: Optional[float]) -> str:
@@ -603,9 +608,10 @@ class PhoneRecognitionEvaluator:
                 _fmt(summary.MDD_F1),
                 _fmt(summary.Diagnostic_Accuracy),
                 _fmt(summary.Diagnostic_Error_Rate),
+                _fmt(summary.True_Diagnostic_Accuracy),
             ]
         else:
-            mdd_cells = [""] * 14
+            mdd_cells = [""] * 15
 
         row = [
             evalname,

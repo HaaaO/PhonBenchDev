@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH -J l2arctic_all_eval
+#SBATCH -J syn_art_all_eval
 #SBATCH -p gpu_test
 #SBATCH --gres=gpu:1
 #SBATCH -c 8
@@ -8,8 +8,8 @@
 #SBATCH -o /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 #SBATCH -e /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 
-# Run all 7 PRiSM models on l2arctic_perceived, then score PER + inventory.
-# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/l2_arctic.sh
+# Run PRiSM phoneme models on synthetic_articulation (Kaldi-style eval set), then score PER + inventory.
+# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/syn_art.sh
 
 set -u
 mkdir -p /n/iqss_sponsored/Lab/zshi/slurm_logs
@@ -20,8 +20,8 @@ cd /n/iqss_sponsored/Lab/zshi/PhonBenchDev
 # shellcheck disable=SC1091
 source .venv/bin/activate
 
-DATA_DIR=/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets
-DATASET=test_l2arctic_perceived
+DATA_DIR=/n/iqss_sponsored/Lab/zshi/prism-evalsets
+DATASET=synthetic_articulation
 TAG=$(date +%Y%m%d_%H%M%S)
 
 # ===== Inference ==============================================================
@@ -30,6 +30,7 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_powsm \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_powsm_${TAG}
@@ -38,32 +39,36 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_powsm_ctc \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_powsm_ctc_${TAG}
 
-# 3. W2V2P-LV60
+# # 3. W2V2P-LV60
 # python src/main.py \
 #     experiment=inference/transcribe_w2v2ph \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
 #     task_name=inf_${DATASET}_lv60_${TAG}
 
-# # # 4. W2V2P-XLSR53
+# # 4. W2V2P-XLSR53
 # python src/main.py \
 #     experiment=inference/transcribe_w2v2ph \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
 #     task_name=inf_${DATASET}_xlsr53_${TAG}
 
-# # # 5. MultiIPA (ctag)
+# # 5. MultiIPA (ctag)
 # python src/main.py \
 #     experiment=inference/transcribe_w2v2ph \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=ctaguchi/wav2vec2-large-xlsr-japlmthufielta-ipa1000-ns \
@@ -73,15 +78,17 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_zipactc \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-500k \
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
-# # 7. ZIPA-CTC-NS
+# 7. ZIPA-CTC-NS
 # python src/main.py \
 #     experiment=inference/transcribe_zipactc \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
@@ -91,6 +98,7 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gemini_${TAG}
@@ -100,15 +108,17 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
-#     inference.inference_runner.client_config.model_name=gemini-3.0-flash \
+#     inference.inference_runner.client_config.model_name=gemini-3-flash-preview \
 #     task_name=inf_${DATASET}_gemini3_${TAG}
 
 # 8c. GPT-audio-1.5
 # python src/main.py \
 #     experiment=inference/transcribe_gptaudio \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
@@ -125,36 +135,39 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_gemini_canonical_${TAG}
 
 # 8e. GPT-audio-1.5 + canonical IPA prompt
+python src/main.py \
+    experiment=inference/transcribe_gptaudio \
+    prompt=transcribe_ipa_canonical \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    data.require_canonical=True \
+    task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
+
+# 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 # python src/main.py \
-#     experiment=inference/transcribe_gptaudio \
-#     prompt=transcribe_ipa_canonical \
+#     experiment=inference/transcribe_babar \
 #     data=powsmeval \
 #     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
-#     data.require_canonical=True \
-#     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
+#     task_name=inf_${DATASET}_babar_${TAG}
 
-# 8f. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
-python src/main.py \
-    experiment=inference/transcribe_babar \
-    data=powsmeval \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    task_name=inf_${DATASET}_babar_${TAG}
-
-# 9. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
+# # 10. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
 # python src/main.py \
 #     experiment=inference/transcribe_huper \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_huper_${TAG}
 
-# 10. HuPER Corrector (audio + canonical IPA -> realized IPA)
+# # 11. HuPER Corrector (audio + canonical IPA -> realized IPA)
 # python src/main.py \
 #     experiment=inference/transcribe_huper_corrector \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.canonical_file=$DATA_DIR/$DATASET/text.canonical \
@@ -203,13 +216,3 @@ done
 echo
 echo "=== DONE: $(date) ==="
 echo "outputs under: /n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs/inf_${DATASET}_*_${TAG}"
-
-
-
-
-# from huggingface_hub import snapshot_download                          
-#   snapshot_download("espnet/powsm_ctc",local_dir="exp/cache/powsm_ctc")   
-
-# espnet/powsm_ctc
-
-# espnet/owsm_ctc_v4_1B

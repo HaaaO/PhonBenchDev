@@ -126,16 +126,31 @@ class GeminiInference:
         first = pred[0]
         return isinstance(first, dict) and ("error" in first)
 
-    def __call__(self, audio_path: str | Path, **kwargs: Any) -> Any:
+    @staticmethod
+    def _render_prompt(template: str, values: dict[str, Any]) -> str:
+        if not template:
+            return template
+        rendered_values = {
+            key: "" if value is None else value for key, value in values.items()
+        }
+        try:
+            return template.format_map(rendered_values)
+        except KeyError as e:
+            missing_key = e.args[0]
+            raise ValueError(
+                f"Prompt template requires missing field: {missing_key}"
+            ) from e
+
+    def __call__(self, wavpath: str | Path, **kwargs: Any) -> Any:
         """
         Run inference on an audio file.
 
         This method implements the interface expected by distributed_inference.py.
 
         Args:
-            audio_path: Path to the audio file to process.
+            wavpath: Path to the audio file to process (matches KaldiDataset key).
             **kwargs: Additional fields from the dataset item. Used for caching
-                      and passthrough purposes only (not for prompt generation).
+                      and prompt template rendering.
 
         Returns:
             Dict containing raw and processed transcripts.
@@ -145,15 +160,18 @@ class GeminiInference:
             if self.cache_key_field in kwargs:
                 cache_key = str(kwargs.get(self.cache_key_field))
             else:
-                cache_key = str(audio_path)
+                cache_key = str(wavpath)
             if self.resume and cache_key in self._cache:
                 return self._cache[cache_key]
 
         try:
+            prompt_values = {**kwargs, "wavpath": wavpath}
+            user_prompt = self._render_prompt(self.user_prompt, prompt_values)
+            system_prompt = self._render_prompt(self.system_prompt, prompt_values)
             raw_model_response = self.client.generate(
-                prompt=self.user_prompt,
-                system_prompt=self.system_prompt if self.system_prompt else None,
-                files=audio_path,
+                prompt=user_prompt,
+                system_prompt=system_prompt if system_prompt else None,
+                files=wavpath,
             )
         except Exception as e:
             err_code = getattr(e, "code", None)
@@ -176,8 +194,8 @@ class GeminiInference:
                 self._append_jsonl(
                     self.error_log_path,
                     {
-                        "key": cache_key or str(audio_path),
-                        "audio_path": str(audio_path),
+                        "key": cache_key or str(wavpath),
+                        "audio_path": str(wavpath),
                         "error": pred[0]["error"],
                     },
                 )

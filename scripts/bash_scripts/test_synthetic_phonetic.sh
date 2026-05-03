@@ -103,7 +103,38 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gemini_${TAG}
 
-# 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
+# 9. GPT-audio-1.5
+# python src/main.py \
+#     experiment=inference/transcribe_gptaudio \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptaudio_${TAG}
+
+# 10. Gemini + canonical IPA prompt
+# python src/main.py \
+#     experiment=inference/transcribe_gemini \
+#     prompt=transcribe_ipa_canonical \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_canonical=True \
+#     task_name=inf_${DATASET}_gemini_canonical_${TAG}
+
+# 11. GPT-audio-1.5 + canonical IPA prompt
+# python src/main.py \
+#     experiment=inference/transcribe_gptaudio \
+#     prompt=transcribe_ipa_canonical \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_canonical=True \
+#     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
+
+# 12. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 # python src/main.py \
 #     experiment=inference/transcribe_babar \
 #     data=powsmeval \
@@ -112,11 +143,30 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_babar_${TAG}
 
+# 13. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
+python src/main.py \
+    experiment=inference/transcribe_huper \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_huper_${TAG}
+
+# 14. HuPER Corrector (audio + canonical IPA -> realized IPA)
+python src/main.py \
+    experiment=inference/transcribe_huper_corrector \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.canonical_file=$DATA_DIR/$DATASET/text.canonical \
+    task_name=inf_${DATASET}_huper_corrector_${TAG}
+
 # ===== Scoring ================================================================
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini babar)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gptaudio gemini_canonical gptaudio_canonical babar huper huper_corrector)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

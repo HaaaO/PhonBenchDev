@@ -1,5 +1,7 @@
 _target_: src.data.kaldi_dataset.build_kaldi_datamodule
-dataset_name: l2arctic_perceived
+dataset_name: test_l2arctic_perceived
 dataset_config_path: configs/data/powsm_evalset_index.yaml
 data_dir: /n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets
 portable_wavscp: True
+canonical_file: null
+require_canonical: False

@@ -16,6 +16,8 @@ dirpath = Path(args.dirname)
 out = dirpath / "transcription.json"
 merged = {}
 for p in sorted(dirpath.glob("*jsonl")):
+    if ".cache." in p.name or ".errors." in p.name:
+        continue
     for line in p.open():
         if line.strip():
             merged.update(json.loads(line))

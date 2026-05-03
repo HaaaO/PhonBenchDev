@@ -1,0 +1,33 @@
+# @package _global_
+
+# Run inference with the HuPER WavLM phoneme recognizer.
+# Outputs are mapped from ARPAbet to IPA so they line up with PhonBench's
+# other phoneme models.
+# Example:
+#   python src/main.py \
+#     experiment=inference/transcribe_huper \
+#     data=powsmeval data.dataset_name=cmu_kids \
+#     task_name=inf_cmu_kids_huper
+
+defaults:
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["huper", "inference", "ctc"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  num_workers: 5
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym"]
+  out_file: ${paths.output_dir}/transcription.json
+  inference_runner:
+    _target_: src.model.huper.builders.build_huper_recognizer_inference
+    hf_repo: huper29/huper_recognizer
+    device: cuda

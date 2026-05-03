@@ -18,7 +18,7 @@ IPA_TO_ARPABET = {
     "ð": "DH",
     "ɛ": "EH",
     "ɚ": "AXR",  # r-colored schwa
-    "ɝ": "ER",  # stressed r-colored vowel
+    # "ɝ": "ER",  # stressed r-colored vowel
     "f": "F",
     "ɡ": "G",
     "h": "HH",
@@ -51,7 +51,7 @@ IPA_TO_ARPABET = {
     "ɾ̃": "NX",
     "ɾ": "DX",
     "ʔ": "Q",
-    "ɝ": "ER",
+    # "ɝ": "ER",
     "ʉ": "UX",  # d<u>de
     # -------------------------------
     # TIMIT-SPECIFIC EXTRA SYMBOLS

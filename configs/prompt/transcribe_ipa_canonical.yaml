@@ -1,9 +1,8 @@
 # @package inference.inference_runner
 
-# Prompt config for IPA transcription with Gemini
-# Usage: include in experiment config via defaults
-#   defaults:
-#     - /prompt: transcribe_ipa
+# Prompt config for IPA transcription with canonical IPA context.
+# Usage:
+#   prompt=transcribe_ipa_canonical data.require_canonical=True
 
 prompt_config:
   system_prompt: |
@@ -12,6 +11,10 @@ prompt_config:
 
     ### Task
     Listen to the provided audio clip and transcribe the speech into standard International Phonetic Alphabet (IPA) symbols.
+
+    ### Canonical Context
+    The intended canonical IPA pronunciation is:
+    {canonical_ipa}
 
     ### Guidelines for Accuracy
     1.  **Analyze Context:** Implicitly identify the speaker's accent/dialect to ensure vowel qualities are accurate.

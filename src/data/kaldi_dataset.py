@@ -24,6 +24,8 @@ class KaldiDataset(Dataset):
         vocab_file: Optional[str] = None,
         ignore_id: int = -1,
         portable_wavscp=True,
+        canonical_file: Optional[str | Path] = None,
+        require_canonical: bool = False,
     ):
         self.sampling_rate = sampling_rate
         self.ignore_id = ignore_id
@@ -31,6 +33,12 @@ class KaldiDataset(Dataset):
         self.wav_scp = self._load_wav_scp(wav_scp_file, portable_wavscp)
         self.text = self._load_text(text_file)
         self.key2lang = self._extract_language(lang_file)
+        self.require_canonical = require_canonical
+        self.canonical_ipa = self._load_optional_text(
+            canonical_file,
+            description="canonical IPA",
+            required=require_canonical,
+        )
 
         # Load vocabulary for tokenization
         self.vocab = self._load_vocab(vocab_file) if vocab_file else None
@@ -42,6 +50,14 @@ class KaldiDataset(Dataset):
         assert all(
             k in self.key2lang for k in self.keys
         ), "Missing language tags for some keys"
+        if self.require_canonical:
+            missing = [k for k in self.keys if k not in self.canonical_ipa]
+            if missing:
+                examples = ", ".join(missing[:5])
+                raise ValueError(
+                    "Missing canonical IPA entries for "
+                    f"{len(missing)} samples; examples: {examples}"
+                )
         log.info(
             f"Loaded dataset: {len(self.key2lang)} lang keys, {len(self.keys)} samples"
         )
@@ -87,6 +103,28 @@ class KaldiDataset(Dataset):
                     # we must retain full length of transcript
                     text_dict[parts[0]] = " ".join(parts[1:])
         return text_dict
+
+    def _load_optional_text(
+        self,
+        path: Optional[str | Path],
+        description: str,
+        required: bool = False,
+    ) -> Dict[str, str]:
+        if path is None:
+            if required:
+                raise ValueError(f"{description} file is required but was not set")
+            return {}
+
+        path = Path(path)
+        if not path.exists():
+            if required:
+                raise FileNotFoundError(f"{description} file not found: {path}")
+            log.warning(f"Optional {description} file not found, skipping: {path}")
+            return {}
+
+        text = self._load_text(path)
+        log.info(f"Loaded {len(text)} {description} entries from {path}")
+        return text
 
     def _extract_language(self, path):
         key2lang = {}
@@ -156,7 +194,7 @@ class KaldiDataset(Dataset):
         # Tokenize text if vocabulary is loaded
         text_tokens = self._tokenize_text(transcription) if self.vocab else None
 
-        return {
+        sample = {
             "key": key,
             "utt_id": key,
             "speech": waveform.to(torch.float32),
@@ -171,6 +209,11 @@ class KaldiDataset(Dataset):
             "target": transcription,
             "text": transcription,
         }
+        if key in self.canonical_ipa:
+            sample["canonical_ipa"] = self.canonical_ipa[key]
+        elif self.require_canonical:
+            raise KeyError(f"Missing canonical IPA for sample: {key}")
+        return sample
 
 
 class KaldiDataModule(L.LightningDataModule):
@@ -186,6 +229,8 @@ class KaldiDataModule(L.LightningDataModule):
         vocab_file: Optional[str] = None,
         ignore_id: int = -1,
         portable_wavscp: bool = True,
+        canonical_file: Optional[str | Path] = None,
+        require_canonical: bool = False,
     ):
         super().__init__()
         log.info(
@@ -201,6 +246,8 @@ class KaldiDataModule(L.LightningDataModule):
         self.ignore_id = ignore_id
         self.data_dir = data_dir
         self.portable_wavscp = portable_wavscp
+        self.canonical_file = canonical_file
+        self.require_canonical = require_canonical
 
     def setup(self, stage=None):
         self.dataset = KaldiDataset(
@@ -212,6 +259,8 @@ class KaldiDataModule(L.LightningDataModule):
             vocab_file=self.vocab_file,
             ignore_id=self.ignore_id,
             portable_wavscp=self.portable_wavscp,
+            canonical_file=self.canonical_file,
+            require_canonical=self.require_canonical,
         )
 
     def train_dataloader(self):
@@ -274,7 +323,7 @@ class KaldiDataModule(L.LightningDataModule):
             text_data["text"] = padded_texts
             text_data["text_length"] = text_lengths
 
-        return {
+        batch_out = {
             "keys": keys,
             "speech": padded_speeches,
             "speech_length": speech_lengths,
@@ -283,6 +332,9 @@ class KaldiDataModule(L.LightningDataModule):
             "wavpath": wavpaths,
             "lang_sym": languages,
         }
+        if "canonical_ipa" in batch[0]:
+            batch_out["canonical_ipa"] = [item.get("canonical_ipa") for item in batch]
+        return batch_out
 
 
 def build_kaldi_datamodule(
@@ -295,6 +347,8 @@ def build_kaldi_datamodule(
     vocab_file: Optional[str] = None,
     ignore_id: int = -1,
     portable_wavscp: bool = True,
+    canonical_file: Optional[str | Path] = None,
+    require_canonical: bool = False,
 ):
     with open(dataset_config_path) as f:
         config = yaml.safe_load(f)
@@ -307,6 +361,14 @@ def build_kaldi_datamodule(
     wav_scp_file = data_dir / ds_config["wav_scp"]
     text_file = data_dir / ds_config["text_phoneme"]
     lang_file = data_dir / ds_config["language"]
+    if canonical_file is None and ds_config.get("text_canonical"):
+        candidate = data_dir / ds_config["text_canonical"]
+        if candidate.exists() or require_canonical:
+            canonical_file = candidate
+    elif canonical_file is not None:
+        canonical_file = Path(canonical_file)
+        if not canonical_file.is_absolute():
+            canonical_file = data_dir / canonical_file
 
     return KaldiDataModule(
         wav_scp_file=wav_scp_file,
@@ -319,6 +381,8 @@ def build_kaldi_datamodule(
         vocab_file=vocab_file,
         ignore_id=ignore_id,
         portable_wavscp=portable_wavscp,
+        canonical_file=canonical_file,
+        require_canonical=require_canonical,
     )
 
 

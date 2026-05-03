@@ -12,9 +12,10 @@ datasets:
     text_phoneme: "test_gmuaccent/text.good"
     language: "test_gmuaccent/text.lang"
 
-  l2arctic_perceived:
+  test_l2arctic_perceived:
     wav_scp: "test_l2arctic_perceived/wav.scp"
     text_phoneme: "test_l2arctic_perceived/text.good"
+    text_canonical: "test_l2arctic_perceived/text.canonical"
     language: "test_l2arctic_perceived/text"
   
   timit:
@@ -45,4 +46,11 @@ datasets:
   test_synthetic_phonetic:
     wav_scp: "test_synthetic_phonetic/wav.scp"
     text_phoneme: "test_synthetic_phonetic/text.good"
+    text_canonical: "test_synthetic_phonetic/text.canonical"
     language: "test_synthetic_phonetic/text.lang"
+
+  synthetic_articulation:
+    wav_scp: "synthetic_articulation/wav.scp"
+    text_phoneme: "synthetic_articulation/text.good"
+    text_canonical: "synthetic_articulation/text.canonical"
+    language: "synthetic_articulation/text.lang"

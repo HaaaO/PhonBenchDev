@@ -103,7 +103,16 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gemini_${TAG}
 
-# 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
+# 9. GPT-audio-1.5
+# python src/main.py \
+#     experiment=inference/transcribe_gptaudio \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptaudio_${TAG}
+
+# 10. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 python src/main.py \
     experiment=inference/transcribe_babar \
     data=powsmeval \
@@ -112,11 +121,20 @@ python src/main.py \
     data.portable_wavscp=True \
     task_name=inf_${DATASET}_babar_${TAG}
 
+# 11. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
+python src/main.py \
+    experiment=inference/transcribe_huper \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_huper_${TAG}
+
 # ===== Scoring ================================================================
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini babar)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gptaudio babar huper)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

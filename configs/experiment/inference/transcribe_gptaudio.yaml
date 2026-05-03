@@ -1,0 +1,45 @@
+# @package _global_
+
+# This config executes IPA transcription with OpenAI gpt-audio-1.5.
+# Set data field when calling, e.g.
+# python src/main.py experiment=inference/transcribe_gptaudio data=powsmeval task_name=inf_powsmeval_gptaudio
+
+defaults:
+  - /prompt: transcribe_ipa
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["gptaudio", "inference"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  # API-based model: keep one worker to avoid concurrent writes and rate-limit bursts.
+  num_workers: 1
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym", "canonical_ipa"]
+  out_file: ${paths.output_dir}/transcription.jsonl
+  limit_samples: null
+
+  inference_runner:
+    _target_: src.model.openai_audio.transcribe.GptAudioInference
+    client_config:
+      model_name: "gpt-audio-1.5"
+      api_key: ${oc.env:OPENAI_API_KEY}
+      temperature: 0.0
+      top_p: 1.0
+      max_tokens: 256
+      timeout: 600.0
+      retry_config:
+        max_retries: 3
+        initial_delay: 1.0
+        backoff_factor: 2.0
+    cache_key_field: "metadata_idx"
+    cache_path: "${paths.output_dir}/transcription.cache.jsonl"
+    error_log_path: "${paths.output_dir}/transcription.errors.jsonl"
+    resume: True
