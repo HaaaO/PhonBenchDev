@@ -87,30 +87,69 @@ def _levenshtein_align(
     return a_aligned, b_aligned
 
 
-def _correctness_vector(
-    prompted: List[str], aligned_other: List[str], blank: str = MDD_BLANK
-) -> List[Tuple[str, str]]:
-    """Walk Levenshtein ops between `prompted` and `aligned_other`; emit
-    `(label, o_sym)` per op where `label` is "C"/"E" and `o_sym` is the
-    other-side phoneme at that position (or `blank` for indels). The
-    other-side symbol is needed downstream to split TR into CD vs DE.
-    Apply the blank-insertion rule: an insertion on the other side is correct
-    (C) when that other-side phoneme is the blank produced by the U/P base
-    alignment.
+def _align_to_prompted_slots(
+    prompted: List[str], other: List[str], blank: str = MDD_BLANK
+) -> Tuple[List[str], List[List[str]]]:
+    """Align `other` to canonical `prompted` slots.
+
+    Returns one symbol per prompted phone, plus insertion gaps before phone 0,
+    between prompted phones, and after the final prompted phone. Anchoring both
+    uttered and predicted sequences to these slots keeps unequal-length
+    insertions/deletions comparable for MDD bucket counts.
     """
-    p_aln, o_aln = _levenshtein_align(prompted, aligned_other, blank=blank)
-    out: List[Tuple[str, str]] = []
-    for p_sym, o_sym in zip(p_aln, o_aln):
+    if not prompted:
+        return [], [list(other)]
+
+    phone_slots = [blank] * len(prompted)
+    gap_slots: List[List[str]] = [[] for _ in range(len(prompted) + 1)]
+    p_aligned, o_aligned = _levenshtein_align(prompted, other, blank=blank)
+
+    prompt_idx = 0
+    for p_sym, o_sym in zip(p_aligned, o_aligned):
         if p_sym == blank:
-            label = "C" if o_sym == blank else "E"
-        elif o_sym == blank:
-            label = "E"
-        elif p_sym == o_sym:
-            label = "C"
+            if o_sym != blank:
+                gap_slots[prompt_idx].append(o_sym)
+            continue
+
+        phone_slots[prompt_idx] = o_sym
+        prompt_idx += 1
+
+    return phone_slots, gap_slots
+
+
+def _mdd_correctness(prompted_sym: str, other_sym: str, blank: str) -> str:
+    if prompted_sym == blank:
+        return "C" if other_sym == blank else "E"
+    if other_sym == blank:
+        return "E"
+    return "C" if prompted_sym == other_sym else "E"
+
+
+def _update_mdd_counts(
+    counts: Dict[str, int],
+    prompted_sym: str,
+    u_sym: str,
+    h_sym: str,
+    corr_U: List[str],
+    corr_P: List[str],
+    blank: str,
+) -> None:
+    cu = _mdd_correctness(prompted_sym, u_sym, blank=blank)
+    cp = _mdd_correctness(prompted_sym, h_sym, blank=blank)
+    corr_U.append(cu)
+    corr_P.append(cp)
+
+    if cu == "E" and cp == "E":
+        if u_sym == h_sym:
+            counts["CD"] += 1
         else:
-            label = "E"
-        out.append((label, o_sym))
-    return out
+            counts["DE"] += 1
+    elif cu == "C" and cp == "C":
+        counts["TA"] += 1
+    elif cu == "C" and cp == "E":
+        counts["FR"] += 1
+    elif cu == "E" and cp == "C":
+        counts["FA"] += 1
 
 
 def _mdd_counts(
@@ -130,28 +169,33 @@ def _mdd_counts(
     counts = {"TR": 0, "TA": 0, "FR": 0, "FA": 0, "CD": 0, "DE": 0}
     if not prompted and not uttered and not predicted:
         return counts, [], []
-    U_aligned, P_aligned = _levenshtein_align(uttered, predicted, blank=blank)
-    cu_pairs = _correctness_vector(prompted, U_aligned, blank=blank)
-    cp_pairs = _correctness_vector(prompted, P_aligned, blank=blank)
-    if len(cu_pairs) != len(cp_pairs):
-        L = max(len(cu_pairs), len(cp_pairs))
-        cu_pairs = cu_pairs + [("C", blank)] * (L - len(cu_pairs))
-        cp_pairs = cp_pairs + [("C", blank)] * (L - len(cp_pairs))
-    for (cu, u_sym), (cp, h_sym) in zip(cu_pairs, cp_pairs):
-        if cu == "E" and cp == "E":
-            if u_sym == h_sym:
-                counts["CD"] += 1
-            else:
-                counts["DE"] += 1
-        elif cu == "C" and cp == "C":
-            counts["TA"] += 1
-        elif cu == "C" and cp == "E":
-            counts["FR"] += 1
-        elif cu == "E" and cp == "C":
-            counts["FA"] += 1
+
+    u_phones, u_gaps = _align_to_prompted_slots(prompted, uttered, blank=blank)
+    h_phones, h_gaps = _align_to_prompted_slots(prompted, predicted, blank=blank)
+    corr_U: List[str] = []
+    corr_P: List[str] = []
+
+    for slot_idx in range(len(prompted) + 1):
+        u_gap_aligned, h_gap_aligned = _levenshtein_align(
+            u_gaps[slot_idx], h_gaps[slot_idx], blank=blank
+        )
+        for u_sym, h_sym in zip(u_gap_aligned, h_gap_aligned):
+            _update_mdd_counts(
+                counts, blank, u_sym, h_sym, corr_U, corr_P, blank=blank
+            )
+
+        if slot_idx < len(prompted):
+            _update_mdd_counts(
+                counts,
+                prompted[slot_idx],
+                u_phones[slot_idx],
+                h_phones[slot_idx],
+                corr_U,
+                corr_P,
+                blank=blank,
+            )
+
     counts["TR"] = counts["CD"] + counts["DE"]
-    corr_U = [cu for cu, _ in cu_pairs]
-    corr_P = [cp for cp, _ in cp_pairs]
     return counts, corr_U, corr_P
 
 
