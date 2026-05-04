@@ -14,13 +14,21 @@ from typing import Any, Optional, Union, List, Dict
 import httpx
 import numpy as np
 import soundfile as sf
+from omegaconf import DictConfig, ListConfig, OmegaConf
 from openai import OpenAI
 import torch
+
+
+def _to_plain(value: Any) -> Any:
+    if isinstance(value, (ListConfig, DictConfig)):
+        return OmegaConf.to_container(value, resolve=True)
+    return value
 
 
 class VllmInference:
     """
     Compatible with:
+    - Qwen/Qwen2.5-Omni-3B
     - Qwen/Qwen3-Omni-30B-A3B-Instruct
     - Qwen/Qwen3-Omni-30B-A3B-Thinking
     """
@@ -42,7 +50,7 @@ class VllmInference:
         """
         Args:
             client_config: keys: base_url, model_name, api_key, max_tokens, temperature
-            prompt_config: keys: system_prompt, user_prompt_template
+            prompt_config: keys: system_prompt, user_prompt or user_prompt_template
             clean_response: Normalize text (remove punct, lower, etc.)
             output_key: Key to extract if output is JSON
         """
@@ -57,17 +65,22 @@ class VllmInference:
         self.max_tokens = client_config.get("max_tokens", 512)
         self.temperature = client_config.get("temperature", 0.0)
         self.top_p = client_config.get("top_p", 0.95)
+        self.modalities = _to_plain(client_config.get("modalities"))
+        self.extra_body = _to_plain(client_config.get("extra_body"))
         self.save_thoughts = save_thoughts
         # Initialize Client with Timeout
-        http_client = httpx.Client(timeout=timeout)
-        self.client = OpenAI(
-            base_url=self.base_url, api_key=self.api_key, http_client=http_client
-        )
+        if client_config.get("client") is not None:
+            self.client = client_config["client"]
+        else:
+            http_client = httpx.Client(timeout=timeout)
+            self.client = OpenAI(
+                base_url=self.base_url, api_key=self.api_key, http_client=http_client
+            )
 
         # Prompt Config
         self.system_prompt = prompt_config.get("system_prompt", "")
         self.user_prompt_template = prompt_config.get(
-            "user_prompt_template", "{prompt}"
+            "user_prompt_template", prompt_config.get("user_prompt", "{prompt}")
         )
         self.cache_key_field = cache_key_field
         assert self.cache_key_field, "cache_key_field must be non-empty."
@@ -139,6 +152,21 @@ class VllmInference:
         # 'post' handles text after or is empty if cutoff due to token budget
         return thought.strip(), (pre + post).strip()
 
+    @staticmethod
+    def _render_prompt(template: str, values: dict[str, Any]) -> str:
+        if not template:
+            return template
+        rendered_values = {
+            key: "" if value is None else value for key, value in values.items()
+        }
+        try:
+            return template.format_map(rendered_values)
+        except KeyError as e:
+            missing_key = e.args[0]
+            raise ValueError(
+                f"Prompt template requires missing field: {missing_key}"
+            ) from e
+
     def __call__(
         self, speech: Union[np.ndarray, str, Path], **kwargs: Any
     ) -> List[Dict[str, Any]]:
@@ -147,15 +175,8 @@ class VllmInference:
             return self._cache[uttid]
 
         try:
-            prompt = self.user_prompt_template.format(**kwargs)
-        except KeyError:
-            # print(
-            #     f"Warning: Missing keys in provided arguments. Provided keys: {list(kwargs.keys())},"
-            #     f" whereas user_prompt_template requires keys used in: {self.user_prompt_template}"
-            # )
-            prompt = self.user_prompt_template  # Use template as-is
-
-        try:
+            prompt = self._render_prompt(self.user_prompt_template, kwargs)
+            system_prompt = self._render_prompt(self.system_prompt, kwargs)
             if isinstance(speech, torch.Tensor):
                 speech = speech.cpu().numpy()
             assert isinstance(speech, np.ndarray), "Speech input must be a numpy array."
@@ -163,8 +184,8 @@ class VllmInference:
             b64_audio = self._numpy_to_base64_wav(speech, sr)
             data_uri = f"data:audio/wav;base64,{b64_audio}"
             messages = []
-            if self.system_prompt:
-                messages.append({"role": "system", "content": self.system_prompt})
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
 
             # Qwen-Audio vLLM specific format: Audio before text
             messages.append(
@@ -178,13 +199,18 @@ class VllmInference:
             )
 
             # 3. API Call
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=messages,
-                temperature=self.temperature,
-                max_tokens=self.max_tokens,
-                top_p=self.top_p,
-            )
+            call_kwargs = {
+                "model": self.model_name,
+                "messages": messages,
+                "temperature": self.temperature,
+                "max_tokens": self.max_tokens,
+                "top_p": self.top_p,
+            }
+            if self.modalities is not None:
+                call_kwargs["modalities"] = self.modalities
+            if self.extra_body:
+                call_kwargs["extra_body"] = self.extra_body
+            response = self.client.chat.completions.create(**call_kwargs)
             raw_content = response.choices[0].message.content
 
         except Exception as e:

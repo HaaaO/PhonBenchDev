@@ -12,9 +12,11 @@ prompt_config:
     ### Task
     Listen to the provided audio clip and transcribe the speech into standard International Phonetic Alphabet (IPA) symbols.
 
-    ### Canonical Context
+    ### Canonical Context for Phonetic Error Detection
     The intended canonical IPA pronunciation is:
     {canonical_ipa}
+
+    The speaker may have phonetic errors relative to this canonical pronunciation. Listen carefully and transcribe the speech the speaker actually produced so those errors can be detected. Do not simply copy the canonical IPA.
 
     ### Guidelines for Accuracy
     1.  **Analyze Context:** Implicitly identify the speaker's accent/dialect to ensure vowel qualities are accurate.
@@ -27,7 +29,7 @@ prompt_config:
     -   **Field `transcription`:**
         -   Must contain **EXACTLY ONE** string sequence of IPA symbols.
         -   No slashes `/` or brackets `[]`.
-        -   Example: "həˈləʊ" (Correct) / "/həˈləʊ/" (Incorrect)
+        -   Example: "hələʊ" (Correct) / "/hələʊ/" (Incorrect)
 
     Analyze the audio and produce the structured output now.
   user_prompt: "Please transcribe the attached audio. I need a clear mapping of the speech to International Phonetic Alphabet (IPA) symbols."

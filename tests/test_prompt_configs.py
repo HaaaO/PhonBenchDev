@@ -19,9 +19,13 @@ def test_canonical_prompt_only_adds_canonical_ipa_block():
     canonical_prompt = canonical["prompt_config"]
 
     canonical_block = (
-        "\n\n### Canonical Context\n"
+        "\n\n### Canonical Context for Phonetic Error Detection\n"
         "The intended canonical IPA pronunciation is:\n"
         "{canonical_ipa}\n\n"
+        "The speaker may have phonetic errors relative to this canonical "
+        "pronunciation. Listen carefully and transcribe the speech the speaker "
+        "actually produced so those errors can be detected. Do not simply copy "
+        "the canonical IPA.\n\n"
     )
     canonical_without_block = canonical_prompt["system_prompt"].replace(
         canonical_block,

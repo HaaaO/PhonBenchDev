@@ -19,6 +19,8 @@ export HF_HOME="${HF_HOME:-/n/iqss_sponsored/Lab/zshi/.cache/huggingface}"
 cd /n/iqss_sponsored/Lab/zshi/PhonBenchDev
 # shellcheck disable=SC1091
 source .venv/bin/activate
+# shellcheck disable=SC1091
+source scripts/bash_scripts/vllm_helpers.sh
 
 DATA_DIR=/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets
 DATASET=test_l2arctic_perceived
@@ -135,7 +137,31 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     data.require_canonical=True \
 #     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
 
-# 8f. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
+# 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
+# start_qwen25_vllm
+# trap stop_qwen25_vllm EXIT
+# python src/main.py \
+#     experiment=inference/transcribe_qwen25omni3b \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.port=${QWEN25_VLLM_PORT} \
+#     task_name=inf_${DATASET}_qwen25omni3b_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_qwen25omni3b \
+#     prompt=transcribe_ipa_canonical \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_canonical=True \
+#     inference.port=${QWEN25_VLLM_PORT} \
+#     task_name=inf_${DATASET}_qwen25omni3b_canonical_${TAG}
+# stop_qwen25_vllm
+# trap - EXIT
+
+# 8g. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 python src/main.py \
     experiment=inference/transcribe_babar \
     data=powsmeval \
@@ -164,7 +190,7 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gemini_canonical gptaudio_canonical babar huper huper_corrector)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gemini_canonical gptaudio_canonical qwen25omni3b qwen25omni3b_canonical babar huper huper_corrector)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

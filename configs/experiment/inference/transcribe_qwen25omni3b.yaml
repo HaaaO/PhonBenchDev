@@ -1,0 +1,47 @@
+# @package _global_
+
+# IPA transcription with Qwen2.5-Omni-3B served by vLLM-Omni.
+# Start a vLLM-Omni server first, then pass inference.port=<PORT>.
+
+defaults:
+  - /prompt: transcribe_ipa
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["qwen25omni3b", "inference", "vllm"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  # vLLM serves the model; workers only send HTTP requests.
+  num_workers: 4
+  port: ???
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym", "canonical_ipa"]
+  out_file: ${paths.output_dir}/transcription.jsonl
+  limit_samples: null
+
+  inference_runner:
+    _target_: src.model.qwen.inference.VllmInference
+    device: cpu
+    client_config:
+      base_url: "http://127.0.0.1:${inference.port}/v1"
+      model_name: "Qwen/Qwen2.5-Omni-3B"
+      api_key: "EMPTY"
+      temperature: 0.0
+      top_p: 0.95
+      max_tokens: 512
+      modalities: ["text"]
+    output_key: "transcription"
+    clean_response: True
+    cache_key_field: "utt_id"
+    cache_path: ${paths.cache_dir}/qwen25omni3b/${task_name}.cache.jsonl
+    error_log_path: ${paths.cache_dir}/qwen25omni3b/${task_name}.errors.jsonl
+    resume: True
+    timeout: 600.0
+    save_thoughts: False
