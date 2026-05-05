@@ -67,6 +67,7 @@ log = RankedLogger(__name__, rank_zero_only=True)
 
 
 MDD_BLANK = "-"
+IPA_STRESS_MARKS = "ˈˌ"
 
 
 def _levenshtein_align(
@@ -257,6 +258,7 @@ class PhoneRecognitionEvaluator:
         recognizes them (panphon.ipa_segs('ɚ') returns []).
         """
         s = s.replace(" ", "").translate(str.maketrans("", "", string.punctuation))
+        s = s.translate(str.maketrans("", "", IPA_STRESS_MARKS))
         s = unicodedata.normalize("NFD", s)
         s = s.replace("g", "ɡ")
         s = s.replace("ɚ", "ə˞").replace("ɝ", "ɜ˞")
@@ -423,6 +425,7 @@ class PhoneRecognitionEvaluator:
                 SUB=0.0,
                 INS=0.0,
                 DEL=0.0,
+                inventory=setkeydict([]),
             )
             return empty_summary, {}
 

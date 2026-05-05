@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#SBATCH -J syn_art_all_eval
+#SBATCH -J authentic_kids_kaldi_all_eval
 #SBATCH -p gpu
 #SBATCH --gres=gpu:1
 #SBATCH -c 8
@@ -8,8 +8,8 @@
 #SBATCH -o /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 #SBATCH -e /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 
-# Run PRiSM phoneme models on synthetic_articulation (Kaldi-style eval set), then score PER + inventory.
-# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/syn_art.sh
+# Run PRiSM phoneme models on authentic_kids_kaldi (Kaldi-style eval set), then score PER + inventory.
+# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/authentic_kids_kaldi.sh
 
 set -u
 mkdir -p /n/iqss_sponsored/Lab/zshi/slurm_logs
@@ -24,7 +24,7 @@ export VLLM_BIN=/n/iqss_sponsored/Lab/zshi/vllm-omni-env/.venv/bin/vllm
 source scripts/bash_scripts/vllm_helpers.sh
 
 DATA_DIR=/n/iqss_sponsored/Lab/zshi/prism-evalsets
-DATASET=synthetic_articulation
+DATASET=authentic_kids_kaldi
 TAG=$(date +%Y%m%d_%H%M%S)
 
 # ===== Inference ==============================================================
@@ -48,14 +48,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_powsm_ctc_${TAG}
 
 # # 3. W2V2P-LV60
-# python src/main.py \
-#     experiment=inference/transcribe_w2v2ph \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
-#     task_name=inf_${DATASET}_lv60_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_w2v2ph \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
+    task_name=inf_${DATASET}_lv60_${TAG}
 
 # # 4. W2V2P-XLSR53
 # python src/main.py \
@@ -88,43 +88,43 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # 7. ZIPA-CTC-NS
-# python src/main.py \
-#     experiment=inference/transcribe_zipactc \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
-#     task_name=inf_${DATASET}_zipactc_ns_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_zipactc \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+    task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8a. Gemini 2.5 Flash (default in transcribe_gemini.yaml)
-# python src/main.py \
-#     experiment=inference/transcribe_gemini \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_gemini_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_gemini \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_gemini_${TAG}
 
 # 8b. Gemini 3.0 Flash (override model_name on the CLI; verify the exact id
 #     against https://ai.google.dev/gemini-api/docs/models if the API 404s)
-# python src/main.py \
-#     experiment=inference/transcribe_gemini \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.client_config.model_name=gemini-3-flash-preview \
-#     task_name=inf_${DATASET}_gemini3_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_gemini \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.client_config.model_name=gemini-3-flash-preview \
+    task_name=inf_${DATASET}_gemini3_${TAG}
 
 # 8c. GPT-audio-1.5
-# python src/main.py \
-#     experiment=inference/transcribe_gptaudio \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_gptaudio_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_gptaudio \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_gptaudio_${TAG}
 
 # 8d. Gemini 2.5 Flash + canonical IPA prompt
 # python src/main.py \
@@ -149,17 +149,17 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
 
 # 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
-start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
-trap stop_qwen25_vllm EXIT
-python src/main.py \
-    experiment=inference/transcribe_qwen25omni3b \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.port=${QWEN25_VLLM_PORT} \
-    inference.num_workers=1 \
-    task_name=inf_${DATASET}_qwen25omni3b_${TAG}
+# start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
+# trap stop_qwen25_vllm EXIT
+# python src/main.py \
+#     experiment=inference/transcribe_qwen25omni3b \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.port=${QWEN25_VLLM_PORT} \
+#     inference.num_workers=1 \
+#     task_name=inf_${DATASET}_qwen25omni3b_${TAG}
 # python src/main.py \
 #     experiment=inference/transcribe_qwen25omni3b \
 #     prompt=transcribe_ipa_canonical \
@@ -170,8 +170,8 @@ python src/main.py \
 #     data.require_canonical=True \
 #     inference.port=${QWEN25_VLLM_PORT} \
 #     task_name=inf_${DATASET}_qwen25omni3b_canonical_${TAG}
-stop_qwen25_vllm
-trap - EXIT
+# stop_qwen25_vllm
+# trap - EXIT
 
 # 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 # python src/main.py \
@@ -211,7 +211,7 @@ for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"
     out_base="/n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs/${task_name}"
 
-    # Hydra writes to <out_base>/<timestamp>/ — pick the newest.
+    # Hydra writes to <out_base>/<timestamp>/ - pick the newest.
     run_dir=$(find "$out_base" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
                 | sort -nr | awk 'NR==1 {print $2}')
     if [[ -z "$run_dir" ]]; then

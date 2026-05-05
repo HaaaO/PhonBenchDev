@@ -28,6 +28,9 @@ def test_clean_text():
     
     # Test 'g' -> 'ɡ' replacement
     assert PhoneRecognitionEvaluator.clean_text("g") == "ɡ"
+
+    # Test stress mark removal
+    assert PhoneRecognitionEvaluator.clean_text("ˈt ˌg") == "tɡ"
     
     # Test normalization
     text = "ɑ"

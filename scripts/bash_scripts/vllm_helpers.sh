@@ -12,6 +12,32 @@ QWEN25_VLLM_HOST="${QWEN25_VLLM_HOST:-127.0.0.1}"
 QWEN25_VLLM_PID="${QWEN25_VLLM_PID:-}"
 QWEN25_VLLM_PORT="${QWEN25_VLLM_PORT:-}"
 QWEN25_VLLM_LOG="${QWEN25_VLLM_LOG:-}"
+VLLM_BIN="${VLLM_BIN:-vllm}"   # override to the server-env's vllm binary
+
+# Default to single-GPU stage config (all stages on device 0).
+# Override QWEN25_VLLM_ARGS to use a different layout (e.g. multi-GPU).
+_VLLM_HELPERS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+QWEN25_VLLM_ARGS="${QWEN25_VLLM_ARGS:---stage-configs-path ${_VLLM_HELPERS_DIR}/qwen25_omni_single_gpu.yaml}"
+
+# Triton JIT-compiles a CUDA driver wrapper at startup and needs Python.h.
+# The system Python lacks dev headers; borrow them from a FASRC python module.
+# We load the module just long enough to read its include path, then unload so
+# the active venv's python keeps priority on PATH. Only C_INCLUDE_PATH persists.
+_VLLM_PY_MODULE="${VLLM_PY_HEADERS_MODULE:-python/3.12.11-fasrc02}"
+if [[ -z "${_VLLM_PYTHON_H_READY:-}" ]] && command -v module >/dev/null 2>&1; then
+    if module load "$_VLLM_PY_MODULE" 2>/dev/null; then
+        _vllm_inc="$(python3 -c 'import sysconfig; print(sysconfig.get_path("include"))' 2>/dev/null)"
+        module unload "$_VLLM_PY_MODULE" 2>/dev/null || true
+        if [[ -n "$_vllm_inc" && -f "$_vllm_inc/Python.h" ]]; then
+            export C_INCLUDE_PATH="${_vllm_inc}${C_INCLUDE_PATH:+:${C_INCLUDE_PATH}}"
+            export _VLLM_PYTHON_H_READY=1
+        else
+            echo "vllm_helpers: $_VLLM_PY_MODULE did not yield Python.h; Triton may fail" >&2
+        fi
+    else
+        echo "vllm_helpers: failed to module-load $_VLLM_PY_MODULE; Triton may fail" >&2
+    fi
+fi
 
 get_free_vllm_port() {
     python -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()'
@@ -77,8 +103,8 @@ start_qwen25_vllm() {
     echo "Starting Qwen2.5 vLLM server: model=${model}, port=${port}" >&2
     echo "vLLM log: ${QWEN25_VLLM_LOG}" >&2
 
-    if command -v vllm >/dev/null 2>&1; then
-        vllm serve "$model" \
+    if [[ -x "$VLLM_BIN" ]] || command -v "$VLLM_BIN" >/dev/null 2>&1; then
+        "$VLLM_BIN" serve "$model" \
             --omni \
             --host "$QWEN25_VLLM_HOST" \
             --port "$port" \

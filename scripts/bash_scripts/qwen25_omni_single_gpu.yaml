@@ -1,0 +1,38 @@
+# Thinker-only stage config for Qwen2.5-Omni via vLLM-Omni.
+# Text transcription only — Talker (Stage 1) and Code2Wav (Stage 2) are
+# dropped so we don't pay ~50s/request synthesizing audio we discard.
+# Adapted from vllm_omni/model_executor/stage_configs/qwen2_5_omni.yaml.
+
+stage_args:
+  - stage_id: 0
+    runtime:
+      process: true
+      devices: "0"
+      max_batch_size: 4
+    engine_args:
+      model_stage: thinker
+      model_arch: Qwen2_5OmniForConditionalGeneration
+      worker_cls: vllm_omni.worker.gpu_ar_worker.GPUARWorker
+      scheduler_cls: vllm_omni.core.sched.scheduler.OmniScheduler
+      gpu_memory_utilization: 0.85
+      enforce_eager: true
+      trust_remote_code: true
+      engine_output_type: latent
+      enable_prefix_caching: false
+    is_comprehension: true
+    final_output: true
+    final_output_type: text
+    default_sampling_params:
+      temperature: 0.0
+      top_p: 1.0
+      top_k: -1
+      max_tokens: 2048
+      seed: 42
+      detokenize: True
+      repetition_penalty: 1.1
+
+runtime:
+  enabled: true
+  defaults:
+    window_size: -1
+    max_inflight: 1
