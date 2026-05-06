@@ -47,6 +47,7 @@ datasets:
     wav_scp: "authentic_kids_kaldi/wav.scp"
     text_phoneme: "authentic_kids_kaldi/text.good"
     text_canonical: "authentic_kids_kaldi/text.canonical"
+    text_word_canonical: "authentic_kids_kaldi/text_word.canonical"
     language: "authentic_kids_kaldi/text.lang"
 
   test_synthetic_phonetic:

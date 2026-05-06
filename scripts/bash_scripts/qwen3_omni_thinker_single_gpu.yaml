@@ -1,0 +1,41 @@
+# Thinker-only stage config for Qwen3-Omni via vLLM-Omni.
+# Text transcription only: Talker and Code2Wav are omitted because this
+# benchmark reads the text response and discards synthesized speech.
+# Adapted from vllm_omni/model_executor/stage_configs/qwen3_omni_moe.yaml.
+
+stage_args:
+  - stage_id: 0
+    runtime:
+      process: true
+      devices: "0"
+      max_batch_size: 1
+    engine_args:
+      model_stage: thinker
+      model_arch: Qwen3OmniMoeForConditionalGeneration
+      worker_cls: vllm_omni.worker.gpu_ar_worker.GPUARWorker
+      scheduler_cls: vllm_omni.core.sched.scheduler.OmniScheduler
+      gpu_memory_utilization: 0.90
+      enforce_eager: true
+      trust_remote_code: true
+      dtype: bfloat16
+      max_model_len: 4096
+      engine_output_type: latent
+      enable_prefix_caching: false
+      hf_config_name: thinker_config
+    is_comprehension: true
+    final_output: true
+    final_output_type: text
+    default_sampling_params:
+      temperature: 0.0
+      top_p: 0.95
+      top_k: -1
+      max_tokens: 2048
+      seed: 42
+      detokenize: True
+      repetition_penalty: 1.05
+
+runtime:
+  enabled: true
+  defaults:
+    window_size: -1
+    max_inflight: 1

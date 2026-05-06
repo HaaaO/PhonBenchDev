@@ -116,3 +116,38 @@ def test_vllm_inference_supports_legacy_user_prompt_template(tmp_path):
     assert pred[0]["processed_transcript"] == "kaet"
     call = fake.completions.calls[0]
     assert call["messages"][0]["content"][1]["text"] == "Legacy template for utt3"
+
+
+def test_vllm_inference_loads_sibling_distributed_cache_shards(tmp_path):
+    cached_pred = [
+        {
+            "processed_transcript": "cached",
+            "predicted_transcript": "cached",
+            "raw_model_response": "cached",
+        }
+    ]
+    sibling_cache = tmp_path / "task.cache.0.0.jsonl"
+    current_worker_cache = tmp_path / "task.cache.0.1.jsonl"
+    sibling_cache.write_text(
+        json.dumps({"key": "utt4", "pred": cached_pred}, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+    fake = FakeOpenAIClient(content=json.dumps({"transcription": "fresh"}))
+    inference = VllmInference(
+        client_config={
+            "base_url": "http://127.0.0.1:8000/v1",
+            "model_name": "Qwen/Qwen2.5-Omni-3B",
+            "api_key": "EMPTY",
+            "client": fake,
+        },
+        prompt_config={"system_prompt": "", "user_prompt": "transcribe"},
+        clean_response=True,
+        output_key="transcription",
+        cache_path=current_worker_cache,
+    )
+
+    pred = inference(speech=torch.zeros(160), utt_id="utt4")
+
+    assert pred == cached_pred
+    assert fake.completions.calls == []

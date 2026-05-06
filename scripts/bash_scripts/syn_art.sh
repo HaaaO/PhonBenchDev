@@ -98,13 +98,13 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8a. Gemini 2.5 Flash (default in transcribe_gemini.yaml)
-# python src/main.py \
-#     experiment=inference/transcribe_gemini \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_gemini_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_gemini \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_gemini_${TAG}
 
 # 8b. Gemini 3.0 Flash (override model_name on the CLI; verify the exact id
 #     against https://ai.google.dev/gemini-api/docs/models if the API 404s)
@@ -149,17 +149,17 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
 
 # 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
-start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
-trap stop_qwen25_vllm EXIT
-python src/main.py \
-    experiment=inference/transcribe_qwen25omni3b \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.port=${QWEN25_VLLM_PORT} \
-    inference.num_workers=1 \
-    task_name=inf_${DATASET}_qwen25omni3b_${TAG}
+# start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
+# trap stop_qwen25_vllm EXIT
+# python src/main.py \
+#     experiment=inference/transcribe_qwen25omni3b \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.port=${QWEN25_VLLM_PORT} \
+#     inference.num_workers=1 \
+#     task_name=inf_${DATASET}_qwen25omni3b_${TAG}
 # python src/main.py \
 #     experiment=inference/transcribe_qwen25omni3b \
 #     prompt=transcribe_ipa_canonical \
@@ -170,8 +170,7 @@ python src/main.py \
 #     data.require_canonical=True \
 #     inference.port=${QWEN25_VLLM_PORT} \
 #     task_name=inf_${DATASET}_qwen25omni3b_canonical_${TAG}
-stop_qwen25_vllm
-trap - EXIT
+
 
 # 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 # python src/main.py \
@@ -240,6 +239,9 @@ for mv in "${MODELS[@]}"; do
         --canonical_file "$DATA_DIR/$DATASET/text.canonical"
     echo "    results: $run_dir/inventory_results.csv"
 done
+
+# stop_qwen25_vllm
+# trap - EXIT
 
 echo
 echo "=== DONE: $(date) ==="

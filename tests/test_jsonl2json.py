@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+import pytest
+
 
 def _load_jsonl2json_module():
     script_path = Path(__file__).resolve().parents[1] / "scripts" / "jsonl2json.py"
@@ -82,3 +84,54 @@ def test_merge_jsonl_dir_writes_raw_normalized_alias_and_report(tmp_path):
     assert all(row["utt_id"] == "utt-0" for row in rows)
     assert all(row["profile"] == "ipa_eng_broad_v1" for row in rows)
     assert all(row["changed"] == "True" for row in rows)
+
+
+def test_merge_jsonl_dir_validates_error_logs_are_empty_predictions(tmp_path):
+    module = _load_jsonl2json_module()
+    raw_record = {
+        "0": {
+            "pred": [
+                {
+                    "processed_transcript": "",
+                    "predicted_transcript": "",
+                    "error": {"type": "RuntimeError", "message": "boom"},
+                }
+            ],
+            "passthrough": {"utt_id": "utt-0", "target": "t ɔɪ z"},
+        }
+    }
+    (tmp_path / "transcription.0.jsonl").write_text(
+        json.dumps(raw_record, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "transcription.errors.jsonl").write_text(
+        json.dumps({"key": "utt-0", "error": {"message": "boom"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    module.merge_jsonl_dir(tmp_path, normalization_profile=None)
+
+    merged = json.loads((tmp_path / "transcription.json").read_text(encoding="utf-8"))
+    assert list(merged) == ["0"]
+    assert merged["0"]["pred"][0]["processed_transcript"] == ""
+
+
+def test_merge_jsonl_dir_rejects_error_log_without_empty_prediction(tmp_path):
+    module = _load_jsonl2json_module()
+    raw_record = {
+        "0": {
+            "pred": [{"processed_transcript": "t", "predicted_transcript": "t"}],
+            "passthrough": {"utt_id": "utt-0", "target": "t"},
+        }
+    }
+    (tmp_path / "transcription.0.jsonl").write_text(
+        json.dumps(raw_record, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "transcription.errors.jsonl").write_text(
+        json.dumps({"key": "utt-1", "error": {"message": "boom"}}) + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="missing error keys"):
+        module.merge_jsonl_dir(tmp_path, normalization_profile=None)

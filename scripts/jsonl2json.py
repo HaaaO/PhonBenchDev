@@ -38,6 +38,79 @@ def load_jsonl_shards(dirpath: Path) -> Dict[str, Any]:
     return merged
 
 
+def _error_log_paths(dirpath: Path) -> List[Path]:
+    return sorted(
+        path
+        for path in dirpath.glob("*jsonl")
+        if ".errors" in path.name or ".error" in path.name
+    )
+
+
+def load_error_log_keys(dirpath: Path) -> set[str]:
+    keys: set[str] = set()
+    for path in _error_log_paths(dirpath):
+        with path.open(encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                key = record.get("key")
+                if key is not None:
+                    keys.add(str(key))
+    return keys
+
+
+def _record_key(record_key: str, item: Dict[str, Any]) -> str:
+    passthrough = item.get("passthrough") or {}
+    return str(
+        passthrough.get("utt_id")
+        or passthrough.get("key")
+        or passthrough.get("metadata_idx")
+        or record_key
+    )
+
+
+def _has_empty_prediction(item: Dict[str, Any]) -> bool:
+    pred = item.get("pred")
+    if not isinstance(pred, list) or not pred or not isinstance(pred[0], dict):
+        return False
+    first = pred[0]
+    return (
+        first.get("processed_transcript", "") == ""
+        and first.get("predicted_transcript", "") == ""
+    )
+
+
+def validate_error_logs_represented(
+    dirpath: Path,
+    merged: Dict[str, Any],
+) -> None:
+    error_keys = load_error_log_keys(dirpath)
+    if not error_keys:
+        return
+
+    merged_by_key = {
+        _record_key(record_key, item): item
+        for record_key, item in merged.items()
+        if isinstance(item, dict)
+    }
+    missing = sorted(error_keys - set(merged_by_key))
+    non_empty = sorted(
+        key
+        for key in error_keys & set(merged_by_key)
+        if not _has_empty_prediction(merged_by_key[key])
+    )
+    if missing or non_empty:
+        msg = []
+        if missing:
+            msg.append(f"missing error keys in transcription shards: {missing[:10]}")
+        if non_empty:
+            msg.append(
+                f"error keys without empty predictions: {non_empty[:10]}"
+            )
+        raise ValueError("; ".join(msg))
+
+
 def write_json(path: Path, data: Dict[str, Any]) -> None:
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
@@ -61,6 +134,7 @@ def merge_jsonl_dir(
 ) -> Dict[str, Path]:
     dirpath = Path(dirpath)
     merged = load_jsonl_shards(dirpath)
+    validate_error_logs_represented(dirpath, merged)
 
     raw_path = dirpath / raw_filename
     compat_path = dirpath / compat_filename

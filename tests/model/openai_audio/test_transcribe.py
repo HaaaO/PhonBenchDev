@@ -240,14 +240,19 @@ def test_error_prediction_and_error_log(tmp_path):
     fake = FakeOpenAIClient(error=RuntimeError("api down"))
     inf = _inference(fake, tmp_path)
 
-    pred = inf(speech=torch.zeros(160), metadata_idx=4, audio_path="/tmp/a.wav")
+    pred = inf(
+        speech=torch.zeros(160),
+        metadata_idx=4,
+        utt_id="utt4",
+        audio_path="/tmp/a.wav",
+    )
 
     assert pred[0]["processed_transcript"] == ""
     assert pred[0]["error"]["type"] == "RuntimeError"
     assert "api down" in pred[0]["error"]["message"]
     lines = (tmp_path / "errors.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["key"] == "4"
+    assert json.loads(lines[0])["key"] == "utt4"
 
 
 def test_missing_audio_returns_error_prediction(tmp_path):

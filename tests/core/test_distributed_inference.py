@@ -64,6 +64,16 @@ class DummyInference:
         return f"pred_len_{speech.shape[0]}"
 
 
+class FailingInference:
+    def __init__(self, device="cpu"):
+        self.device = device
+
+    def __call__(self, speech, **kwargs):
+        if kwargs.get("key") == "item_2":
+            raise RuntimeError("boom")
+        return f"pred_len_{speech.shape[0]}"
+
+
 # -------------------------------------------------------------------------
 # Synchronous Pool Mock
 # -------------------------------------------------------------------------
@@ -114,6 +124,8 @@ def mock_env(monkeypatch):
             return DummyDataModule(size=config.get("size", 10))
         if target == "dummy_inference":
             return DummyInference(device=kwargs.get("device", "cpu"))
+        if target == "failing_inference":
+            return FailingInference(device=kwargs.get("device", "cpu"))
         return MagicMock()
 
     monkeypatch.setattr("hydra.utils.instantiate", mock_instantiate)
@@ -242,6 +254,34 @@ def test_limit_samples(tmp_path, mock_env, monkeypatch):
         lines = f.readlines()
 
     assert len(lines) == 5
+
+
+def test_item_failure_emits_empty_prediction_record(tmp_path, mock_env, monkeypatch):
+    monkeypatch.setenv("SLURM_ARRAY_TASK_ID", "0")
+    monkeypatch.setenv("SLURM_ARRAY_TASK_COUNT", "1")
+
+    out_base = tmp_path / "inference_item_error"
+    expected_out_file = tmp_path / "inference_item_error.0.jsonl"
+
+    run_distributed_inference_(
+        dataset_cfg={"_target_": "dummy_dataset", "size": 4},
+        inference_config={"_target_": "failing_inference", "device": "cpu"},
+        num_workers=1,
+        out_file=str(out_base),
+        passthrough_keys=["key"],
+    )
+
+    with open(expected_out_file, "r") as f:
+        records = [json.loads(line) for line in f]
+
+    assert len(records) == 4
+    by_idx = {int(next(iter(record))): next(iter(record.values())) for record in records}
+    assert sorted(by_idx) == [0, 1, 2, 3]
+    failed = by_idx[2]["pred"][0]
+    assert failed["processed_transcript"] == ""
+    assert failed["predicted_transcript"] == ""
+    assert failed["error"]["type"] == "RuntimeError"
+    assert by_idx[2]["passthrough"]["key"] == "item_2"
 
 
 def test_missing_out_file_assertion():

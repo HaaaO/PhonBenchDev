@@ -5,3 +5,5 @@ data_dir: /n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets
 portable_wavscp: True
 canonical_file: null
 require_canonical: False
+word_canonical_file: null
+require_word_canonical: False

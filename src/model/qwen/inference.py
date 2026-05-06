@@ -100,14 +100,10 @@ class VllmInference:
             self._load_cache()
 
     def _load_cache(self) -> None:
-        if not self.cache_path or not self.cache_path.exists():
+        if not self.cache_path:
             return
         try:
-            # load all available cache to check if any
-            # other worker already completed the item?
-            prefix = self.cache_path.name
-            all_paths = sorted(self.cache_path.parent.glob(f"{prefix}.*.*.jsonl"))
-            for path in all_paths:
+            for path in self._cache_paths_to_load():
                 with path.open("r", encoding="utf-8") as f:
                     for line in f:
                         line = line.strip()
@@ -123,6 +119,21 @@ class VllmInference:
                             continue
         except Exception:
             pass
+
+    def _cache_paths_to_load(self) -> List[Path]:
+        if not self.cache_path:
+            return []
+
+        candidates = {self.cache_path}
+        name = self.cache_path.name
+        if name.endswith(".jsonl"):
+            stem = name[: -len(".jsonl")]
+            parts = stem.rsplit(".", 2)
+            if len(parts) == 3 and parts[1].isdigit() and parts[2].isdigit():
+                stem = parts[0]
+            candidates.update(self.cache_path.parent.glob(f"{stem}.*.*.jsonl"))
+
+        return sorted(path for path in candidates if path.exists())
 
     def _append_jsonl(self, path: Path, record: Dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)

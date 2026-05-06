@@ -1,6 +1,9 @@
 """Tests for PhoneRecognitionEvaluator."""
 
+from types import SimpleNamespace
+
 import pytest
+from src.metrics import phone_recognition as phone_recognition_module
 from src.metrics.phone_recognition import (
     PhoneRecognitionEvaluator,
     PhoneRecognitionSummary,
@@ -83,6 +86,47 @@ def test_evaluate_empty_data():
     assert summary.N == 0
     assert summary.phones == 0
     assert len(instance_metrics) == 0
+
+
+def test_load_predictions_treats_malformed_or_error_preds_as_empty(tmp_path, monkeypatch):
+    pred_file = tmp_path / "transcription.json"
+    pred_file.write_text(
+        """
+        {
+          "0": {
+            "pred": [{"processed_transcript": "t"}],
+            "passthrough": {"utt_id": "utt-0", "target": "t"}
+          },
+          "1": {
+            "pred": [{"error": {"message": "boom"}}],
+            "passthrough": {"utt_id": "utt-1", "target": "k"}
+          },
+          "2": {
+            "pred": [],
+            "passthrough": {"utt_id": "utt-2", "target": "s"}
+          }
+        }
+        """,
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        phone_recognition_module,
+        "args",
+        SimpleNamespace(
+            key_field="utt_id",
+            pred_field="processed_transcript",
+            gt_field="target",
+            noisy_pr=False,
+        ),
+        raising=False,
+    )
+
+    loaded = phone_recognition_module._load_predictions(str(pred_file))
+
+    assert loaded["combined"]["utt-0"]["prediction"] == "t"
+    assert loaded["combined"]["utt-1"]["prediction"] == ""
+    assert loaded["combined"]["utt-2"]["prediction"] == ""
+    assert len(loaded["combined"]) == 3
 
 
 def test_evaluate_single_utterance():
@@ -278,6 +322,27 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
     assert summary.True_Diagnostic_Accuracy == pytest.approx(1 / 3)
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_U"] == "C E C C C"
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_P"] == "C C C E C"
+
+
+def test_mdd_alignment_preserves_space_separated_phone_tokens():
+    evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
+
+    mdd = evaluator._compute_mdd("t ɔɪ z", "t ɔɪ s", "")
+
+    assert mdd["prompted"] == "t ɔɪ z"
+    assert mdd["uttered"] == "t ɔɪ s"
+    assert mdd["predicted"] == ""
+    assert mdd["corr_U"] == "C C E"
+    assert mdd["corr_P"] == "E E E"
+    assert mdd["FR"] == 2
+    assert mdd["DE"] == 1
+    assert mdd["TR"] == 1
+
+
+def test_mdd_tokenization_keeps_affricate_and_diphthong_tokens():
+    evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
+
+    assert evaluator._mdd_segments("t͡ʃ ɔɪ") == ["t͡ʃ", "ɔɪ"]
 
 
 def test_evaluate_with_normalization():

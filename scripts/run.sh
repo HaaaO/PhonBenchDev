@@ -22,7 +22,7 @@ help_message=$(cat << 'EOF'
 Usage: $0 [OPTIONS]
 
 Options:
-  --model LIST        Models: powsm, powsm_ctc, ctag, lv60, xlsr53, zipactc, zipactc_ns, gemini, gptaudio, qwen25, or "all"
+  --model LIST        Models: powsm, powsm_ctc, ctag, lv60, xlsr53, zipactc, zipactc_ns, gemini, gptaudio, azure, qwen25, or "all"
   --recipe LIST       Recipes: geo_in, l1cls_cmu, l1cls_ed, l2as, lid_fl, atyp_ec, atyp_ua, atyp_us, inference, cascade_rnn_cls
   --data LIST         Datasets: timit, geo_in, edacc, cmul2arctic, speechocean, fleurs, or "all"
   --cluster NAME      Cluster: babel (default: babel)
@@ -76,6 +76,7 @@ declare -A model_configs=(
     ["zipactc_ns"]="zipactc|anyspeech/zipa-large-crctc-ns-800k"
     ["gemini"]="gemini|"
     ["gptaudio"]="gptaudio|"
+    ["azure"]="azure_pronunciation|"
     ["qwen25"]="qwen25omni3b|"
     ["wavlm"]="wavlm|microsoft/wavlm-base"
     ["whisper"]="whisper|openai/whisper-small"

@@ -1,0 +1,51 @@
+# @package _global_
+
+# By default Azure Pronunciation Assessment runs in scripted mode with a
+# word-level canonical script. To run unscripted assessment, override:
+#   inference.inference_runner.use_reference_text=False
+#   data.require_word_canonical=False
+
+defaults:
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["azure_pronunciation", "inference"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  num_workers: 1
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym", "canonical_ipa", "canonical_words"]
+  out_file: ${paths.output_dir}/transcription.jsonl
+  limit_samples: null
+
+  inference_runner:
+    _target_: src.model.azure_speech.pronunciation_assessment.AzurePronunciationAssessmentInference
+    speech_key: ${oc.env:AZURE_SPEECH_KEY}
+    region: ${oc.env:AZURE_SPEECH_REGION}
+    backend: rest
+    timeout: 60.0
+    language: en-US
+    grading_system: HundredMark
+    granularity: Phoneme
+    dimension: Comprehensive
+    phoneme_alphabet: IPA
+    nbest_phoneme_count: 5
+    enable_miscue: True
+    enable_prosody: False
+    use_reference_text: True
+    reference_text_field: canonical_words
+    cache_key_field: utt_id
+    cache_path: ${paths.output_dir}/transcription.cache.jsonl
+    error_log_path: ${paths.output_dir}/transcription.errors.jsonl
+    resume: True
+    retry_config:
+      max_retries: 3
+      initial_delay: 1.0
+      backoff_factor: 2.0

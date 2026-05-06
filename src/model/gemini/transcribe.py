@@ -10,10 +10,13 @@ import json
 import os
 import string
 import unicodedata
+import warnings
 from pathlib import Path
 from typing import Any, Optional
 
 from src.model.gemini.client import GeminiClient
+
+_UNSTABLE_CACHE_KEY_FIELDS = {"metadata_idx", "idx", "index"}
 
 
 class GeminiInference:
@@ -32,7 +35,7 @@ class GeminiInference:
         device: Optional[str] = None,  # Ignored for API-based model
         cache_path: Optional[str | Path] = None,
         resume: bool = True,
-        cache_key_field: str = "metadata_idx",
+        cache_key_field: str = "utt_id",
         error_log_path: Optional[str | Path] = None,
     ) -> None:
         """
@@ -57,8 +60,9 @@ class GeminiInference:
                 If set, each successful prediction is appended as one JSON line.
             resume: If True and cache_path exists, reuse cached predictions to skip
                 already-processed samples (best-effort).
-            cache_key_field: Field name to use as cache key (default: "metadata_idx").
-                If missing, falls back to audio_path string.
+            cache_key_field: Field name to use as cache key (default: "utt_id").
+                Positional fields such as "metadata_idx" are avoided when stable
+                sample identifiers such as "utt_id" are available.
             error_log_path: Optional JSONL file to append per-sample errors for debugging.
         """
         # Initialize the client
@@ -77,6 +81,7 @@ class GeminiInference:
         self.error_log_path = Path(error_log_path) if error_log_path else None
         self.resume = resume
         self.cache_key_field = cache_key_field
+        self._warned_unstable_cache_key = False
         self._cache: dict[str, Any] = {}
         if self.cache_path and self.resume:
             self._load_cache()
@@ -141,6 +146,35 @@ class GeminiInference:
                 f"Prompt template requires missing field: {missing_key}"
             ) from e
 
+    def _cache_key(self, wavpath: str | Path, kwargs: dict[str, Any]) -> str:
+        configured_value = kwargs.get(self.cache_key_field)
+        if (
+            self.cache_key_field in _UNSTABLE_CACHE_KEY_FIELDS
+            and configured_value is not None
+        ):
+            for stable_field in ("utt_id", "key", "audio_path", "wavpath"):
+                stable_value = kwargs.get(stable_field)
+                if stable_value is not None:
+                    if not self._warned_unstable_cache_key:
+                        warnings.warn(
+                            f"cache_key_field='{self.cache_key_field}' is positional "
+                            f"and unsafe for resume; using '{stable_field}' instead.",
+                            RuntimeWarning,
+                            stacklevel=2,
+                        )
+                        self._warned_unstable_cache_key = True
+                    return str(stable_value)
+
+        if configured_value is not None:
+            return str(configured_value)
+
+        for fallback_field in ("utt_id", "key", "audio_path", "wavpath"):
+            fallback_value = kwargs.get(fallback_field)
+            if fallback_value is not None:
+                return str(fallback_value)
+
+        return str(wavpath)
+
     def __call__(self, wavpath: str | Path, **kwargs: Any) -> Any:
         """
         Run inference on an audio file.
@@ -157,10 +191,7 @@ class GeminiInference:
         """
         cache_key: Optional[str] = None
         if self.cache_path:
-            if self.cache_key_field in kwargs:
-                cache_key = str(kwargs.get(self.cache_key_field))
-            else:
-                cache_key = str(wavpath)
+            cache_key = self._cache_key(wavpath, kwargs)
             if self.resume and cache_key in self._cache:
                 return self._cache[cache_key]
 

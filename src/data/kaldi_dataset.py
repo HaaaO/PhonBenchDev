@@ -26,6 +26,8 @@ class KaldiDataset(Dataset):
         portable_wavscp=True,
         canonical_file: Optional[str | Path] = None,
         require_canonical: bool = False,
+        word_canonical_file: Optional[str | Path] = None,
+        require_word_canonical: bool = False,
     ):
         self.sampling_rate = sampling_rate
         self.ignore_id = ignore_id
@@ -38,6 +40,12 @@ class KaldiDataset(Dataset):
             canonical_file,
             description="canonical IPA",
             required=require_canonical,
+        )
+        self.require_word_canonical = require_word_canonical
+        self.canonical_words = self._load_optional_text(
+            word_canonical_file,
+            description="word-level canonical text",
+            required=require_word_canonical,
         )
 
         # Load vocabulary for tokenization
@@ -56,6 +64,14 @@ class KaldiDataset(Dataset):
                 examples = ", ".join(missing[:5])
                 raise ValueError(
                     "Missing canonical IPA entries for "
+                    f"{len(missing)} samples; examples: {examples}"
+                )
+        if self.require_word_canonical:
+            missing = [k for k in self.keys if k not in self.canonical_words]
+            if missing:
+                examples = ", ".join(missing[:5])
+                raise ValueError(
+                    "Missing word-level canonical text entries for "
                     f"{len(missing)} samples; examples: {examples}"
                 )
         log.info(
@@ -213,6 +229,10 @@ class KaldiDataset(Dataset):
             sample["canonical_ipa"] = self.canonical_ipa[key]
         elif self.require_canonical:
             raise KeyError(f"Missing canonical IPA for sample: {key}")
+        if key in self.canonical_words:
+            sample["canonical_words"] = self.canonical_words[key]
+        elif self.require_word_canonical:
+            raise KeyError(f"Missing word-level canonical text for sample: {key}")
         return sample
 
 
@@ -231,6 +251,8 @@ class KaldiDataModule(L.LightningDataModule):
         portable_wavscp: bool = True,
         canonical_file: Optional[str | Path] = None,
         require_canonical: bool = False,
+        word_canonical_file: Optional[str | Path] = None,
+        require_word_canonical: bool = False,
     ):
         super().__init__()
         log.info(
@@ -248,6 +270,8 @@ class KaldiDataModule(L.LightningDataModule):
         self.portable_wavscp = portable_wavscp
         self.canonical_file = canonical_file
         self.require_canonical = require_canonical
+        self.word_canonical_file = word_canonical_file
+        self.require_word_canonical = require_word_canonical
 
     def setup(self, stage=None):
         self.dataset = KaldiDataset(
@@ -261,6 +285,8 @@ class KaldiDataModule(L.LightningDataModule):
             portable_wavscp=self.portable_wavscp,
             canonical_file=self.canonical_file,
             require_canonical=self.require_canonical,
+            word_canonical_file=self.word_canonical_file,
+            require_word_canonical=self.require_word_canonical,
         )
 
     def train_dataloader(self):
@@ -334,6 +360,10 @@ class KaldiDataModule(L.LightningDataModule):
         }
         if "canonical_ipa" in batch[0]:
             batch_out["canonical_ipa"] = [item.get("canonical_ipa") for item in batch]
+        if "canonical_words" in batch[0]:
+            batch_out["canonical_words"] = [
+                item.get("canonical_words") for item in batch
+            ]
         return batch_out
 
 
@@ -349,6 +379,8 @@ def build_kaldi_datamodule(
     portable_wavscp: bool = True,
     canonical_file: Optional[str | Path] = None,
     require_canonical: bool = False,
+    word_canonical_file: Optional[str | Path] = None,
+    require_word_canonical: bool = False,
 ):
     with open(dataset_config_path) as f:
         config = yaml.safe_load(f)
@@ -369,6 +401,14 @@ def build_kaldi_datamodule(
         canonical_file = Path(canonical_file)
         if not canonical_file.is_absolute():
             canonical_file = data_dir / canonical_file
+    if word_canonical_file is None and ds_config.get("text_word_canonical"):
+        candidate = data_dir / ds_config["text_word_canonical"]
+        if candidate.exists() or require_word_canonical:
+            word_canonical_file = candidate
+    elif word_canonical_file is not None:
+        word_canonical_file = Path(word_canonical_file)
+        if not word_canonical_file.is_absolute():
+            word_canonical_file = data_dir / word_canonical_file
 
     return KaldiDataModule(
         wav_scp_file=wav_scp_file,
@@ -383,6 +423,8 @@ def build_kaldi_datamodule(
         portable_wavscp=portable_wavscp,
         canonical_file=canonical_file,
         require_canonical=require_canonical,
+        word_canonical_file=word_canonical_file,
+        require_word_canonical=require_word_canonical,
     )
 
 

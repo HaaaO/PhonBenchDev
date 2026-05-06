@@ -264,8 +264,28 @@ class PhoneRecognitionEvaluator:
         s = s.replace("ɚ", "ə˞").replace("ɝ", "ɜ˞")
         return s.strip()
 
+    @staticmethod
+    def clean_mdd_token(s: str) -> str:
+        s = s.translate(str.maketrans("", "", string.punctuation))
+        s = s.translate(str.maketrans("", "", IPA_STRESS_MARKS))
+        s = unicodedata.normalize("NFD", s)
+        s = s.replace("g", "ɡ")
+        s = s.replace("ɚ", "ə˞").replace("ɝ", "ɜ˞")
+        return s.strip()
+
     def _prepare(self, text: str) -> str:
         return self.clean_text(text) if self.normalize_ipa else text
+
+    def _mdd_segments(self, text: str) -> List[str]:
+        if " " in text.strip():
+            if not self.normalize_ipa:
+                return [token for token in text.split() if token]
+            return [
+                token
+                for token in (self.clean_mdd_token(token) for token in text.split())
+                if token
+            ]
+        return self.dst.fm.ipa_segs(self._prepare(text))
 
     def _compute_sid_metrics(self, hyp: List[str], ref: List[str]) -> Tuple[int, int, int]:
         """Substitution / insertion / deletion counts on phones via kaldialign.
@@ -335,12 +355,9 @@ class PhoneRecognitionEvaluator:
         prompted/uttered/predicted segment strings and corr_U/corr_P vectors
         for downstream per-utt CSV writing.
         """
-        p_clean = self._prepare(prompted)
-        u_clean = self._prepare(uttered)
-        h_clean = self._prepare(predicted)
-        p_segs = self.dst.fm.ipa_segs(p_clean)
-        u_segs = self.dst.fm.ipa_segs(u_clean)
-        h_segs = self.dst.fm.ipa_segs(h_clean)
+        p_segs = self._mdd_segments(prompted)
+        u_segs = self._mdd_segments(uttered)
+        h_segs = self._mdd_segments(predicted)
         counts, corr_U, corr_P = _mdd_counts(p_segs, u_segs, h_segs)
         return {
             "TR": counts["TR"],
@@ -634,6 +651,8 @@ class PhoneRecognitionEvaluator:
             "Diagnostic_Accuracy",
             "Diagnostic_Error_Rate",
             "True_Diagnostic_Accuracy",
+            "N",
+            "phones",
         ]
 
         def _fmt(v: Optional[float]) -> str:
@@ -665,6 +684,8 @@ class PhoneRecognitionEvaluator:
             f"{summary.FER:.2f}",
             f"{summary.PER:.2f}",
             *mdd_cells,
+            summary.N,
+            summary.phones,
         ]
 
         os.makedirs(os.path.dirname(output_file) or ".", exist_ok=True)
@@ -714,6 +735,16 @@ def _load_canonical(canonical_file: str) -> Dict[str, str]:
     return out
 
 
+def _prediction_value(item: Dict[str, Any], pred_field: str) -> str:
+    pred = item.get("pred")
+    if not isinstance(pred, list) or not pred or not isinstance(pred[0], dict):
+        return ""
+    value = pred[0].get(pred_field, "")
+    if value is None:
+        return ""
+    return value if isinstance(value, str) else str(value)
+
+
 def _load_predictions(
     pred_file: str,
     language_field: str = None,
@@ -753,7 +784,7 @@ def _load_predictions(
                 continue
             utt_id = item["passthrough"][args.key_field]
             sample: Dict[str, str] = {
-                "prediction": item["pred"][0][args.pred_field],
+                "prediction": _prediction_value(item, args.pred_field),
                 "transcription": (
                     item["passthrough"][args.gt_field]
                     if not args.noisy_pr

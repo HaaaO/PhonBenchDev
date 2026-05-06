@@ -24,7 +24,7 @@ class GptAudioInference:
         device: Optional[str] = None,
         cache_path: Optional[str | Path] = None,
         resume: bool = True,
-        cache_key_field: str = "metadata_idx",
+        cache_key_field: str = "utt_id",
         error_log_path: Optional[str | Path] = None,
     ) -> None:
         self.client = OpenAIAudioClient(**client_config)
@@ -107,7 +107,12 @@ class GptAudioInference:
     def _cache_key(self, kwargs: dict[str, Any]) -> str:
         if self.cache_key_field in kwargs:
             return str(kwargs[self.cache_key_field])
-        return str(kwargs.get("utt_id") or kwargs.get("audio_path") or kwargs.get("wavpath"))
+        return str(
+            kwargs.get("utt_id")
+            or kwargs.get("audio_path")
+            or kwargs.get("wavpath")
+            or kwargs.get("metadata_idx")
+        )
 
     def __call__(self, **kwargs: Any) -> Any:
         cache_key = self._cache_key(kwargs)

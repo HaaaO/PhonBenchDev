@@ -40,7 +40,7 @@ inference:
         max_retries: 3
         initial_delay: 1.0
         backoff_factor: 2.0
-    cache_key_field: "metadata_idx"
+    cache_key_field: "utt_id"
     cache_path: "${paths.output_dir}/transcription.cache.jsonl"
     error_log_path: "${paths.output_dir}/transcription.errors.jsonl"
     resume: True

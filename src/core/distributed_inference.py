@@ -24,6 +24,17 @@ def _init_worker():
     rank_zero_only.rank = (proc._identity[0] - 1) if proc._identity else 0
 
 
+def _empty_error_prediction(e):
+    return [
+        {
+            "processed_transcript": "",
+            "predicted_transcript": "",
+            "raw_model_response": "",
+            "error": {"type": type(e).__name__, "message": str(e)},
+        }
+    ]
+
+
 def work_chunk_(
     args,
     dataset_cfg,
@@ -50,7 +61,12 @@ def work_chunk_(
             it = dataset[i]
             # keys from dataset override those in inference_call_args
             call_args = {**(inference_call_args or {}), **it}
-            pred = inference_obj(**call_args)
+            try:
+                pred = inference_obj(**call_args)
+            except Exception as e:
+                tb = traceback.format_exc()
+                print(f"[ITEM_ERROR_{worker_id}] idx={i}: {e}\n{tb}", flush=True)
+                pred = _empty_error_prediction(e)
             # keys from dataset that must be passthroughly passed to
             # output to be written
             out.append(
@@ -67,6 +83,12 @@ def default_encoder(o):
     if is_dataclass(o):
         return {f.name: getattr(o, f.name) for f in fields(o)}
     return str(o)
+
+
+def _to_container(cfg):
+    if OmegaConf.is_config(cfg):
+        return OmegaConf.to_container(cfg, resolve=True)
+    return cfg
 
 
 def get_dataset_from_cfg(dataset_cfg):
@@ -99,10 +121,10 @@ def run_distributed_inference_(
         limit_samples: if set, limit the number of samples to process (useful for testing)
     """
 
-    dataset_cfg = OmegaConf.to_container(dataset_cfg, resolve=True)
-    inference_config = OmegaConf.to_container(inference_config, resolve=True)
+    dataset_cfg = _to_container(dataset_cfg)
+    inference_config = _to_container(inference_config)
     if inference_call_args is not None:
-        inference_call_args = OmegaConf.to_container(inference_call_args, resolve=True)
+        inference_call_args = _to_container(inference_call_args)
 
     # fail fast
     assert out_file, "Please provide an out_file to save results."

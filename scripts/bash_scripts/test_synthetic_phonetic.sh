@@ -47,14 +47,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_powsm_ctc_${TAG}
 
 # 3. W2V2P-LV60
-python src/main.py \
-    experiment=inference/transcribe_w2v2ph \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
-    task_name=inf_${DATASET}_lv60_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_w2v2ph \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
+#     task_name=inf_${DATASET}_lv60_${TAG}
 
 # 4. W2V2P-XLSR53
 # python src/main.py \
@@ -170,23 +170,23 @@ python src/main.py \
 #     task_name=inf_${DATASET}_babar_${TAG}
 
 # 14. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
-python src/main.py \
-    experiment=inference/transcribe_huper \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    task_name=inf_${DATASET}_huper_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_huper \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_huper_${TAG}
 
-# 15. HuPER Corrector (audio + canonical IPA -> realized IPA)
-python src/main.py \
-    experiment=inference/transcribe_huper_corrector \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.inference_runner.canonical_file=$DATA_DIR/$DATASET/text.canonical \
-    task_name=inf_${DATASET}_huper_corrector_${TAG}
+# # 15. HuPER Corrector (audio + canonical IPA -> realized IPA)
+# python src/main.py \
+#     experiment=inference/transcribe_huper_corrector \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.canonical_file=$DATA_DIR/$DATASET/text.canonical \
+#     task_name=inf_${DATASET}_huper_corrector_${TAG}
 
 # ===== Scoring ================================================================
 echo
@@ -227,6 +227,9 @@ for mv in "${MODELS[@]}"; do
         --canonical_file "$DATA_DIR/$DATASET/text.canonical"
     echo "    results: $run_dir/inventory_results.csv"
 done
+
+# stop_qwen25_vllm
+# trap - EXIT
 
 echo
 echo "=== DONE: $(date) ==="

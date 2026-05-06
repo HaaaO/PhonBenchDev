@@ -48,7 +48,7 @@ class DirectPromptInference:
         device: Optional[str] = None,  # Ignored for API-based model
         cache_path: Optional[Union[str, Path]] = None,
         resume: bool = True,
-        cache_key_field: str = "metadata_idx",
+        cache_key_field: str = "utt_id",
         error_log_path: Optional[Union[str, Path]] = None,
     ) -> None:
         """
@@ -77,7 +77,7 @@ class DirectPromptInference:
                 If set, each successful prediction is appended as {"key": ..., "pred": ...}.
             resume: If True (default) and cache_path exists, reuse cached predictions
                 to skip already-processed samples.
-            cache_key_field: Field name to use as cache key (default: "metadata_idx").
+            cache_key_field: Field name to use as cache key (default: "utt_id").
                 If missing from kwargs, falls back to audio_path string.
             error_log_path: Optional JSONL file to append per-sample errors for debugging.
         """
