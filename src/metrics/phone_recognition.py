@@ -153,6 +153,28 @@ def _update_mdd_counts(
         counts["FA"] += 1
 
 
+def _mdd_bucket(prompted_sym: str, u_sym: str, h_sym: str,
+                blank: str) -> str:
+    cu = _mdd_correctness(prompted_sym, u_sym, blank=blank)
+    cp = _mdd_correctness(prompted_sym, h_sym, blank=blank)
+    if cu == "E" and cp == "E":
+        return "CD" if u_sym == h_sym else "DE"
+    if cu == "C" and cp == "C":
+        return "TA"
+    if cu == "C" and cp == "E":
+        return "FR"
+    return "FA"
+
+
+def _canonical_edit_cost(c_sym: str, other_sym: str,
+                         blank: str = MDD_BLANK) -> int:
+    if c_sym == blank and other_sym == blank:
+        return 0
+    if c_sym == blank or other_sym == blank:
+        return 1
+    return 0 if c_sym == other_sym else 1
+
+
 def _mdd_counts(
     prompted: List[str],
     uttered: List[str],
@@ -200,6 +222,123 @@ def _mdd_counts(
     return counts, corr_U, corr_P
 
 
+def _joint_mdd_counts(
+    prompted: List[str],
+    uttered: List[str],
+    predicted: List[str],
+    blank: str = MDD_BLANK,
+) -> Tuple[Dict[str, int], List[str], List[str], List[str], List[str],
+           List[str]]:
+    """Jointly align canonical, uttered, and predicted phones for MDD.
+
+    The child/canonical edit distance is the primary objective. The hypothesis
+    only breaks ties between equally good child/canonical alignments, preferring
+    alignments where uttered and predicted phones agree instead of shifting a
+    predicted-only insertion onto the next canonical slot.
+    """
+    counts = {"TR": 0, "TA": 0, "FR": 0, "FA": 0, "CD": 0, "DE": 0}
+    if not prompted and not uttered and not predicted:
+        return counts, [], [], [], [], []
+
+    n_p, n_u, n_h = len(prompted), len(uttered), len(predicted)
+    # consume_prompted, consume_uttered, consume_predicted. The order is the
+    # final deterministic tiebreak when all objective terms are equal.
+    transitions = [
+        (True, True, True),
+        (False, True, True),
+        (False, False, True),
+        (True, False, False),
+        (True, True, False),
+        (True, False, True),
+        (False, True, False),
+    ]
+
+    # Minimize child/canonical edit cost first. Among equally good child truth
+    # alignments, prefer non-gap U/H agreement, preserve exact canonical/H
+    # matches, prefer good MDD rows, then minimize H/canonical edit cost and
+    # keep the alignment compact.
+    Score = Tuple[int, int, int, int, int, int, int]
+    State = Tuple[int, int, int]
+    Row = Tuple[str, str, str]
+    dp: Dict[State, Tuple[Score, Optional[State], Optional[Row]]] = {
+        (0, 0, 0): ((0, 0, 0, 0, 0, 0, 0), None, None)
+    }
+
+    for i in range(n_p + 1):
+        for j in range(n_u + 1):
+            for k in range(n_h + 1):
+                state = (i, j, k)
+                if state not in dp:
+                    continue
+                base_score = dp[state][0]
+                for use_p, use_u, use_h in transitions:
+                    if use_p and i >= n_p:
+                        continue
+                    if use_u and j >= n_u:
+                        continue
+                    if use_h and k >= n_h:
+                        continue
+
+                    next_state = (
+                        i + int(use_p),
+                        j + int(use_u),
+                        k + int(use_h),
+                    )
+                    p_sym = prompted[i] if use_p else blank
+                    u_sym = uttered[j] if use_u else blank
+                    h_sym = predicted[k] if use_h else blank
+                    cu_cost = _canonical_edit_cost(p_sym, u_sym, blank=blank)
+                    ch_cost = _canonical_edit_cost(p_sym, h_sym, blank=blank)
+                    uh_agreement = (
+                        1 if u_sym == h_sym and u_sym != blank else 0)
+                    ch_exact_match = (
+                        1 if p_sym == h_sym and p_sym != blank else 0)
+                    good_mdd = 1 if _mdd_bucket(
+                        p_sym, u_sym, h_sym, blank=blank) in {"TA", "CD"} else 0
+                    row_count = 1
+                    gap_row = 0 if use_p else 1
+                    candidate_score: Score = (
+                        base_score[0] + cu_cost,
+                        base_score[1] - uh_agreement,
+                        base_score[2] - ch_exact_match,
+                        base_score[3] - good_mdd,
+                        base_score[4] + ch_cost,
+                        base_score[5] + row_count,
+                        base_score[6] + gap_row,
+                    )
+                    current = dp.get(next_state)
+                    if current is None or candidate_score < current[0]:
+                        dp[next_state] = (
+                            candidate_score, state, (p_sym, u_sym, h_sym))
+
+    final_state = (n_p, n_u, n_h)
+    aligned_rows: List[Row] = []
+    state: Optional[State] = final_state
+    while state is not None and state != (0, 0, 0):
+        score, prev_state, row = dp[state]
+        del score
+        if row is not None:
+            aligned_rows.append(row)
+        state = prev_state
+    aligned_rows.reverse()
+
+    corr_U: List[str] = []
+    corr_P: List[str] = []
+    prompted_aligned: List[str] = []
+    uttered_aligned: List[str] = []
+    predicted_aligned: List[str] = []
+    for p_sym, u_sym, h_sym in aligned_rows:
+        prompted_aligned.append(p_sym)
+        uttered_aligned.append(u_sym)
+        predicted_aligned.append(h_sym)
+        _update_mdd_counts(
+            counts, p_sym, u_sym, h_sym, corr_U, corr_P, blank=blank)
+
+    counts["TR"] = counts["CD"] + counts["DE"]
+    return (counts, corr_U, corr_P, prompted_aligned, uttered_aligned,
+            predicted_aligned)
+
+
 @dataclass
 class PhoneRecognitionSummary:
     """Aggregate metrics for a phone recognition experiment."""
@@ -231,6 +370,15 @@ class PhoneRecognitionSummary:
     Diagnostic_Accuracy: Optional[float] = None
     Diagnostic_Error_Rate: Optional[float] = None
     True_Diagnostic_Accuracy: Optional[float] = None
+    Joint_TR: int = 0
+    Joint_TA: int = 0
+    Joint_FR: int = 0
+    Joint_FA: int = 0
+    Joint_CD: int = 0
+    Joint_DE: int = 0
+    Joint_Diagnostic_Accuracy: Optional[float] = None
+    Joint_Diagnostic_Error_Rate: Optional[float] = None
+    Joint_True_Diagnostic_Accuracy: Optional[float] = None
 
 
 class PhoneRecognitionEvaluator:
@@ -359,6 +507,9 @@ class PhoneRecognitionEvaluator:
         u_segs = self._mdd_segments(uttered)
         h_segs = self._mdd_segments(predicted)
         counts, corr_U, corr_P = _mdd_counts(p_segs, u_segs, h_segs)
+        (joint_counts, joint_corr_U, joint_corr_P, joint_prompted,
+         joint_uttered, joint_predicted) = _joint_mdd_counts(
+             p_segs, u_segs, h_segs)
         return {
             "TR": counts["TR"],
             "TA": counts["TA"],
@@ -366,11 +517,22 @@ class PhoneRecognitionEvaluator:
             "FA": counts["FA"],
             "CD": counts["CD"],
             "DE": counts["DE"],
+            "Joint_TR": joint_counts["TR"],
+            "Joint_TA": joint_counts["TA"],
+            "Joint_FR": joint_counts["FR"],
+            "Joint_FA": joint_counts["FA"],
+            "Joint_CD": joint_counts["CD"],
+            "Joint_DE": joint_counts["DE"],
             "prompted": " ".join(p_segs),
             "uttered": " ".join(u_segs),
             "predicted": " ".join(h_segs),
             "corr_U": " ".join(corr_U),
             "corr_P": " ".join(corr_P),
+            "joint_prompted": " ".join(joint_prompted),
+            "joint_uttered": " ".join(joint_uttered),
+            "joint_predicted": " ".join(joint_predicted),
+            "joint_corr_U": " ".join(joint_corr_U),
+            "joint_corr_P": " ".join(joint_corr_P),
         }
 
     @classmethod
@@ -460,6 +622,8 @@ class PhoneRecognitionEvaluator:
         has_mdd = False
         tr_sum = ta_sum = fr_sum = fa_sum = 0
         cd_sum = de_sum = 0
+        joint_tr_sum = joint_ta_sum = joint_fr_sum = joint_fa_sum = 0
+        joint_cd_sum = joint_de_sum = 0
         missing_canonical = 0
 
         for utt_id, sample in tqdm(
@@ -490,6 +654,12 @@ class PhoneRecognitionEvaluator:
                 fa_sum += mdd["FA"]
                 cd_sum += mdd["CD"]
                 de_sum += mdd["DE"]
+                joint_tr_sum += mdd["Joint_TR"]
+                joint_ta_sum += mdd["Joint_TA"]
+                joint_fr_sum += mdd["Joint_FR"]
+                joint_fa_sum += mdd["Joint_FA"]
+                joint_cd_sum += mdd["Joint_CD"]
+                joint_de_sum += mdd["Joint_DE"]
                 instance_metrics[utt_id]["mdd"] = mdd
             elif "canonical" in sample:
                 # canonical key present but empty → utt missing from text.canonical
@@ -521,6 +691,12 @@ class PhoneRecognitionEvaluator:
             summary.FA = fa_sum
             summary.CD = cd_sum
             summary.DE = de_sum
+            summary.Joint_TR = joint_tr_sum
+            summary.Joint_TA = joint_ta_sum
+            summary.Joint_FR = joint_fr_sum
+            summary.Joint_FA = joint_fa_sum
+            summary.Joint_CD = joint_cd_sum
+            summary.Joint_DE = joint_de_sum
             total = tr_sum + ta_sum + fr_sum + fa_sum
             if total > 0:
                 summary.Detection_Accuracy = (tr_sum + ta_sum) / total
@@ -548,6 +724,14 @@ class PhoneRecognitionEvaluator:
                 summary.Diagnostic_Error_Rate = de_sum / tr_sum
             if (tr_sum + fa_sum) > 0:
                 summary.True_Diagnostic_Accuracy = cd_sum / (tr_sum + fa_sum)
+            if joint_tr_sum > 0:
+                summary.Joint_Diagnostic_Accuracy = (
+                    joint_cd_sum / joint_tr_sum)
+                summary.Joint_Diagnostic_Error_Rate = (
+                    joint_de_sum / joint_tr_sum)
+            if (joint_tr_sum + joint_fa_sum) > 0:
+                summary.Joint_True_Diagnostic_Accuracy = (
+                    joint_cd_sum / (joint_tr_sum + joint_fa_sum))
 
         return summary, instance_metrics
 
@@ -582,6 +766,11 @@ class PhoneRecognitionEvaluator:
             t.add_row("Diagnostic_Accuracy", _f(summary.Diagnostic_Accuracy))
             t.add_row("Diagnostic_Error_Rate", _f(summary.Diagnostic_Error_Rate))
             t.add_row("True_Diagnostic_Accuracy", _f(summary.True_Diagnostic_Accuracy))
+            t.add_row("Joint TR / TA / FR / FA", f"{summary.Joint_TR} / {summary.Joint_TA} / {summary.Joint_FR} / {summary.Joint_FA}")
+            t.add_row("Joint CD / DE", f"{summary.Joint_CD} / {summary.Joint_DE}")
+            t.add_row("Joint_Diagnostic_Accuracy", _f(summary.Joint_Diagnostic_Accuracy))
+            t.add_row("Joint_Diagnostic_Error_Rate", _f(summary.Joint_Diagnostic_Error_Rate))
+            t.add_row("Joint_True_Diagnostic_Accuracy", _f(summary.Joint_True_Diagnostic_Accuracy))
         Console().print(t)
 
         PhoneRecognitionEvaluator.pretty_print_inventory_metrics(summary.inventory)
@@ -651,6 +840,15 @@ class PhoneRecognitionEvaluator:
             "Diagnostic_Accuracy",
             "Diagnostic_Error_Rate",
             "True_Diagnostic_Accuracy",
+            "Joint_TR",
+            "Joint_TA",
+            "Joint_FR",
+            "Joint_FA",
+            "Joint_CD",
+            "Joint_DE",
+            "Joint_Diagnostic_Accuracy",
+            "Joint_Diagnostic_Error_Rate",
+            "Joint_True_Diagnostic_Accuracy",
             "N",
             "phones",
         ]
@@ -675,9 +873,18 @@ class PhoneRecognitionEvaluator:
                 _fmt(summary.Diagnostic_Accuracy),
                 _fmt(summary.Diagnostic_Error_Rate),
                 _fmt(summary.True_Diagnostic_Accuracy),
+                summary.Joint_TR,
+                summary.Joint_TA,
+                summary.Joint_FR,
+                summary.Joint_FA,
+                summary.Joint_CD,
+                summary.Joint_DE,
+                _fmt(summary.Joint_Diagnostic_Accuracy),
+                _fmt(summary.Joint_Diagnostic_Error_Rate),
+                _fmt(summary.Joint_True_Diagnostic_Accuracy),
             ]
         else:
-            mdd_cells = [""] * 15
+            mdd_cells = [""] * 24
 
         row = [
             evalname,
@@ -848,6 +1055,43 @@ def write_mdd_per_utt_csv(
             writer.writerow([r.get(h, "") for h in headers])
 
 
+def write_mdd_joint_per_utt_csv(
+    output_path: str, rows: List[Dict[str, Any]]
+) -> None:
+    """Write per-utt experimental joint MDD rows to a CSV."""
+    import csv
+    import os
+
+    if not rows:
+        return
+    os.makedirs(os.path.dirname(output_path) or ".", exist_ok=True)
+    headers = [
+        "eval_name",
+        "language",
+        "utt_id",
+        "joint_prompted",
+        "joint_uttered",
+        "joint_predicted",
+        "joint_corr_U",
+        "joint_corr_P",
+        "Joint_TR",
+        "Joint_TA",
+        "Joint_FR",
+        "Joint_FA",
+        "Joint_CD",
+        "Joint_DE",
+    ]
+    write_header = (
+        not os.path.exists(output_path) or os.path.getsize(output_path) == 0
+    )
+    with open(output_path, mode="a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(headers)
+        for r in rows:
+            writer.writerow([r.get(h, "") for h in headers])
+
+
 def add_args(parser: argparse.ArgumentParser) -> None:
     """Add phone recognition evaluation arguments to an argparse parser."""
     parser.add_argument(
@@ -907,6 +1151,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
         default=None,
         help="Output path for per-utt MDD CSV. Defaults to <output_file_dir>/mdd_per_utt.csv.",
     )
+    parser.add_argument(
+        "--mdd_joint_per_utt_file",
+        type=str,
+        default=None,
+        help="Output path for experimental joint MDD CSV. Defaults to <output_file_dir>/mdd_joint_per_utt.csv.",
+    )
 
 
 if __name__ == "__main__":
@@ -936,6 +1186,7 @@ if __name__ == "__main__":
     inventories = []
     langs_used = list(loaded_predictions.keys())
     mdd_per_utt_rows: List[Dict[str, Any]] = []
+    mdd_joint_per_utt_rows: List[Dict[str, Any]] = []
     for lang, preds in tqdm(loaded_predictions.items(), desc="Evaluating languages"):
         evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
         summary, instance_metrics = evaluator.evaluate(preds)
@@ -968,6 +1219,24 @@ if __name__ == "__main__":
                         "DE": mdd["DE"],
                     }
                 )
+                mdd_joint_per_utt_rows.append(
+                    {
+                        "eval_name": args.evaluation_name,
+                        "language": lang,
+                        "utt_id": utt_id,
+                        "joint_prompted": mdd["joint_prompted"],
+                        "joint_uttered": mdd["joint_uttered"],
+                        "joint_predicted": mdd["joint_predicted"],
+                        "joint_corr_U": mdd["joint_corr_U"],
+                        "joint_corr_P": mdd["joint_corr_P"],
+                        "Joint_TR": mdd["Joint_TR"],
+                        "Joint_TA": mdd["Joint_TA"],
+                        "Joint_FR": mdd["Joint_FR"],
+                        "Joint_FA": mdd["Joint_FA"],
+                        "Joint_CD": mdd["Joint_CD"],
+                        "Joint_DE": mdd["Joint_DE"],
+                    }
+                )
 
     if mdd_per_utt_rows:
         mdd_path = args.mdd_per_utt_file
@@ -980,6 +1249,24 @@ if __name__ == "__main__":
             print(f"Wrote {len(mdd_per_utt_rows)} per-utt MDD rows to {mdd_path}")
         else:
             print("Skipping per-utt MDD CSV (no --output_file or --mdd_per_utt_file)")
+
+    if mdd_joint_per_utt_rows:
+        joint_mdd_path = args.mdd_joint_per_utt_file
+        if joint_mdd_path is None and args.output_file:
+            joint_mdd_path = os.path.join(
+                os.path.dirname(args.output_file) or ".",
+                "mdd_joint_per_utt.csv",
+            )
+        if joint_mdd_path:
+            write_mdd_joint_per_utt_csv(
+                joint_mdd_path, mdd_joint_per_utt_rows)
+            print(
+                f"Wrote {len(mdd_joint_per_utt_rows)} per-utt joint MDD rows to {joint_mdd_path}"
+            )
+        else:
+            print(
+                "Skipping per-utt joint MDD CSV (no --output_file or --mdd_joint_per_utt_file)"
+            )
 
     all_keys = set().union(*[inv.keys() for inv in inventories])
     macro_inv_dict = {}

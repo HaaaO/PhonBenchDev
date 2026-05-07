@@ -6,6 +6,8 @@
 #   QWEN25_VLLM_PORT=8091
 #   QWEN25_VLLM_ARGS="--stage-configs-path /path/to/stage.yaml"
 #   VLLM_EXECUTABLE=/path/to/vllm_omni.sif
+#   QWEN25_VLLM_BIN=/path/to/qwen25/vllm
+#   QWEN3_VLLM_BIN=/path/to/qwen3/vllm
 
 QWEN25_VLLM_MODEL="${QWEN25_VLLM_MODEL:-Qwen/Qwen2.5-Omni-3B}"
 QWEN25_VLLM_HOST="${QWEN25_VLLM_HOST:-127.0.0.1}"
@@ -13,6 +15,7 @@ QWEN25_VLLM_PID="${QWEN25_VLLM_PID:-}"
 QWEN25_VLLM_PORT="${QWEN25_VLLM_PORT:-}"
 QWEN25_VLLM_LOG="${QWEN25_VLLM_LOG:-}"
 VLLM_BIN="${VLLM_BIN:-vllm}"   # override to the server-env's vllm binary
+QWEN25_VLLM_BIN="${QWEN25_VLLM_BIN:-$VLLM_BIN}"
 
 # Default to single-GPU stage config (all stages on device 0).
 # Override QWEN25_VLLM_ARGS to use a different layout (e.g. multi-GPU).
@@ -82,6 +85,7 @@ start_qwen25_vllm() {
     local model=${1:-$QWEN25_VLLM_MODEL}
     local port=${QWEN25_VLLM_PORT:-}
     local log_dir=${QWEN25_VLLM_LOG_DIR:-/n/iqss_sponsored/Lab/zshi/slurm_logs}
+    local vllm_bin=${QWEN25_VLLM_BIN:-$VLLM_BIN}
     local extra_args=()
 
     if [[ -z "$port" ]]; then
@@ -101,10 +105,11 @@ start_qwen25_vllm() {
     fi
 
     echo "Starting Qwen2.5 vLLM server: model=${model}, port=${port}" >&2
+    echo "Qwen2.5 vLLM binary: ${vllm_bin}" >&2
     echo "vLLM log: ${QWEN25_VLLM_LOG}" >&2
 
-    if [[ -x "$VLLM_BIN" ]] || command -v "$VLLM_BIN" >/dev/null 2>&1; then
-        "$VLLM_BIN" serve "$model" \
+    if [[ -x "$vllm_bin" ]] || command -v "$vllm_bin" >/dev/null 2>&1; then
+        "$vllm_bin" serve "$model" \
             --omni \
             --host "$QWEN25_VLLM_HOST" \
             --port "$port" \
@@ -152,12 +157,15 @@ QWEN3_VLLM_STAGE_CONFIG="${QWEN3_VLLM_STAGE_CONFIG:-${_VLLM_HELPERS_DIR}/qwen3_o
 # Extra serve flags appended after --stage-configs-path. Engine-level settings
 # for vLLM-Omni are in QWEN3_VLLM_STAGE_CONFIG.
 QWEN3_VLLM_ARGS="${QWEN3_VLLM_ARGS:-}"
+QWEN3_VLLM_BIN="${QWEN3_VLLM_BIN:-$VLLM_BIN}"
 
 _vllm_resolve_bin() {
-    if [[ -x "$VLLM_BIN" ]]; then
-        printf '%s\n' "$VLLM_BIN"
+    local vllm_bin=${1:-$VLLM_BIN}
+
+    if [[ -x "$vllm_bin" ]]; then
+        printf '%s\n' "$vllm_bin"
     else
-        command -v "$VLLM_BIN" 2>/dev/null || true
+        command -v "$vllm_bin" 2>/dev/null || true
     fi
 }
 
@@ -181,10 +189,11 @@ _vllm_python_for_bin() {
 }
 
 check_qwen3_vllm_moe_ops() {
+    local vllm_bin=${1:-${QWEN3_VLLM_BIN:-$VLLM_BIN}}
     local resolved_bin
     local python_bin
 
-    resolved_bin="$(_vllm_resolve_bin)"
+    resolved_bin="$(_vllm_resolve_bin "$vllm_bin")"
     python_bin="$(_vllm_python_for_bin "$resolved_bin")"
     if [[ -z "$python_bin" ]]; then
         echo "Unable to find Python for vLLM preflight check" >&2
@@ -255,6 +264,7 @@ start_qwen3_vllm() {
     local model=${1:-$QWEN3_VLLM_MODEL}
     local port=${QWEN3_VLLM_PORT:-}
     local log_dir=${QWEN3_VLLM_LOG_DIR:-/n/iqss_sponsored/Lab/zshi/slurm_logs}
+    local vllm_bin=${QWEN3_VLLM_BIN:-$VLLM_BIN}
     local extra_args=()
 
     if [[ -z "$port" ]]; then
@@ -272,9 +282,9 @@ start_qwen3_vllm() {
         echo "Qwen3 vLLM-Omni stage config not found: ${QWEN3_VLLM_STAGE_CONFIG}" >&2
         return 1
     fi
-    if [[ -x "$VLLM_BIN" ]] || command -v "$VLLM_BIN" >/dev/null 2>&1; then
+    if [[ -x "$vllm_bin" ]] || command -v "$vllm_bin" >/dev/null 2>&1; then
         local moe_preflight_output
-        if ! moe_preflight_output="$(check_qwen3_vllm_moe_ops)"; then
+        if ! moe_preflight_output="$(check_qwen3_vllm_moe_ops "$vllm_bin")"; then
             echo "$moe_preflight_output" >&2
             echo "Qwen3 vLLM-Omni preflight failed before loading weights." >&2
             echo "This model uses Qwen3-MoE layers, so vLLM must have a working _moe_C extension." >&2
@@ -291,11 +301,12 @@ start_qwen3_vllm() {
     fi
 
     echo "Starting Qwen3 vLLM server: model=${model}, port=${port}" >&2
+    echo "Qwen3 vLLM binary: ${vllm_bin}" >&2
     echo "Qwen3 vLLM-Omni stage config: ${QWEN3_VLLM_STAGE_CONFIG}" >&2
     echo "vLLM log: ${QWEN3_VLLM_LOG}" >&2
 
-    if [[ -x "$VLLM_BIN" ]] || command -v "$VLLM_BIN" >/dev/null 2>&1; then
-        "$VLLM_BIN" serve "$model" \
+    if [[ -x "$vllm_bin" ]] || command -v "$vllm_bin" >/dev/null 2>&1; then
+        "$vllm_bin" serve "$model" \
             --omni \
             --host "$QWEN3_VLLM_HOST" \
             --port "$port" \

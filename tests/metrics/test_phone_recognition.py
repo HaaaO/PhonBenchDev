@@ -7,6 +7,8 @@ from src.metrics import phone_recognition as phone_recognition_module
 from src.metrics.phone_recognition import (
     PhoneRecognitionEvaluator,
     PhoneRecognitionSummary,
+    _canonical_edit_cost,
+    _joint_mdd_counts,
     _mdd_counts,
 )
 
@@ -275,6 +277,109 @@ def test_mdd_counts_aligns_unequal_lengths_by_canonical_slots(
         assert counts[key] == expected
     assert corr_U == expected_corr_U
     assert corr_P == expected_corr_P
+
+
+def test_joint_mdd_alignment_handles_model_insertion_shift():
+    """Joint MDD should not let a model-only insertion shift later U/H phones."""
+    prompted = "p ɛ ŋ ɡ w ɪ n".split()
+    uttered = "p ɪ m w ɪ n".split()
+    predicted = "p ɹ ɪ m w ɪ n".split()
+
+    strict_counts, _, _ = _mdd_counts(prompted, uttered, predicted)
+    joint_counts, _, _, joint_p, joint_u, joint_h = _joint_mdd_counts(
+        prompted, uttered, predicted
+    )
+
+    assert strict_counts["CD"] == 0
+    assert strict_counts["DE"] == 3
+    assert joint_counts["TA"] == 4
+    assert joint_counts["FR"] == 1
+    assert joint_counts["FA"] == 0
+    assert joint_counts["CD"] == 3
+    assert joint_counts["DE"] == 0
+    assert joint_p == "p - ɛ ŋ ɡ w ɪ n".split()
+    assert joint_u == "p - - ɪ m w ɪ n".split()
+    assert joint_h == "p ɹ - ɪ m w ɪ n".split()
+
+
+@pytest.mark.parametrize(
+    ("prompted", "uttered", "predicted"),
+    [
+        pytest.param(list("abc"), list("abc"), list("abc"), id="exact"),
+        pytest.param(list("abc"), list("axc"), list("axc"), id="shared-sub"),
+        pytest.param(list("ab"), list("axb"), list("axb"), id="shared-ins"),
+        pytest.param(list("abc"), list("ac"), list("ac"), id="shared-del"),
+    ],
+)
+def test_joint_mdd_matches_strict_for_simple_cases(prompted, uttered, predicted):
+    strict_counts, _, _ = _mdd_counts(prompted, uttered, predicted)
+    joint_counts, _, _, _, _, _ = _joint_mdd_counts(prompted, uttered, predicted)
+
+    assert joint_counts == strict_counts
+
+
+def test_joint_mdd_keeps_child_canonical_edit_distance_optimal():
+    prompted = "p ɛ ŋ ɡ w ɪ n".split()
+    uttered = "p ɪ m w ɪ n".split()
+    predicted = "p ɹ ɪ m w ɪ n".split()
+
+    _, _, _, joint_p, joint_u, _ = _joint_mdd_counts(
+        prompted, uttered, predicted
+    )
+    joint_cost = sum(
+        _canonical_edit_cost(p_sym, u_sym)
+        for p_sym, u_sym in zip(joint_p, joint_u)
+    )
+    dp = [[0] * (len(uttered) + 1) for _ in range(len(prompted) + 1)]
+    for i in range(len(prompted) + 1):
+        dp[i][0] = i
+    for j in range(len(uttered) + 1):
+        dp[0][j] = j
+    for i, p_sym in enumerate(prompted, 1):
+        for j, u_sym in enumerate(uttered, 1):
+            dp[i][j] = min(
+                dp[i - 1][j] + 1,
+                dp[i][j - 1] + 1,
+                dp[i - 1][j - 1] + (0 if p_sym == u_sym else 1),
+            )
+    strict_cost = dp[-1][-1]
+
+    assert joint_cost == strict_cost
+
+
+def test_joint_mdd_preserves_exact_canonical_prediction_for_child_deletion():
+    """A model that outputs the canonical phone missed the child deletion."""
+    joint_counts, _, _, joint_p, joint_u, joint_h = _joint_mdd_counts(
+        ["s"], [], ["s"]
+    )
+
+    assert joint_counts["FA"] == 1
+    assert joint_counts["FR"] == 0
+    assert joint_counts["CD"] == 0
+    assert joint_counts["DE"] == 0
+    assert joint_p == ["s"]
+    assert joint_u == ["-"]
+    assert joint_h == ["s"]
+
+
+def test_joint_mdd_does_not_split_canonical_prediction_matches_to_create_cd():
+    """Exact C/H matches should not become predicted insertions plus deletions."""
+    prompted = "a b".split()
+    uttered = ["a"]
+    predicted = "a b".split()
+
+    joint_counts, _, _, joint_p, joint_u, joint_h = _joint_mdd_counts(
+        prompted, uttered, predicted
+    )
+
+    assert joint_counts["TA"] == 1
+    assert joint_counts["FA"] == 1
+    assert joint_counts["FR"] == 0
+    assert joint_counts["CD"] == 0
+    assert joint_counts["DE"] == 0
+    assert joint_p == "a b".split()
+    assert joint_u == "a -".split()
+    assert joint_h == "a b".split()
 
 
 def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
