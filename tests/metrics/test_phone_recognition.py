@@ -201,9 +201,9 @@ def test_evaluate_with_mdd_cd_de():
             list("abcd"),
             list("acd"),
             list("axcdy"),
-            {"TA": 3, "FR": 1, "FA": 0, "CD": 0, "DE": 1, "TR": 1},
-            list("CECCC"),
-            list("CECCE"),
+            {"TA": 3, "FR": 2, "FA": 0, "CD": 1, "DE": 0, "TR": 1},
+            list("CCECCC"),
+            list("CEECCE"),
             id="canonical-4-uttered-3-predicted-5",
         ),
         pytest.param(
@@ -262,7 +262,7 @@ def test_evaluate_with_mdd_cd_de():
         ),
     ],
 )
-def test_mdd_counts_aligns_unequal_lengths_by_canonical_slots(
+def test_mdd_counts_uses_pairwise_corrected_alignment(
     prompted,
     uttered,
     predicted,
@@ -270,7 +270,7 @@ def test_mdd_counts_aligns_unequal_lengths_by_canonical_slots(
     expected_corr_U,
     expected_corr_P,
 ):
-    """MDD counts should compare U/P errors in the same canonical phone/gap."""
+    """MDD counts should compare correctness vectors on a shared U/H grid."""
     counts, corr_U, corr_P = _mdd_counts(prompted, uttered, predicted)
 
     for key, expected in expected_counts.items():
@@ -290,8 +290,10 @@ def test_joint_mdd_alignment_handles_model_insertion_shift():
         prompted, uttered, predicted
     )
 
-    assert strict_counts["CD"] == 0
-    assert strict_counts["DE"] == 3
+    assert strict_counts["FR"] == 1
+    assert strict_counts["FA"] == 0
+    assert strict_counts["CD"] == 3
+    assert strict_counts["DE"] == 0
     assert joint_counts["TA"] == 4
     assert joint_counts["FR"] == 1
     assert joint_counts["FA"] == 0
@@ -383,11 +385,11 @@ def test_joint_mdd_does_not_split_canonical_prediction_matches_to_create_cd():
 
 
 def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
-    """Aggregate MDD metrics should use canonical-slot counts across lengths."""
+    """Aggregate MDD metrics should use pairwise-corrected MDD counts."""
     evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
 
     test_data = {
-        # TA=3, DE=1, FR=1
+        # TA=3, CD=1, FR=2
         "de_and_fr": {
             "canonical": "abcd",
             "transcription": "acd",
@@ -411,20 +413,20 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
 
     assert summary.has_mdd is True
     assert summary.TA == 8
-    assert summary.FR == 2
+    assert summary.FR == 3
     assert summary.FA == 1
-    assert summary.CD == 1
-    assert summary.DE == 1
+    assert summary.CD == 2
+    assert summary.DE == 0
     assert summary.TR == 2
-    assert summary.Detection_Accuracy == pytest.approx(10 / 13)
-    assert summary.FRR == pytest.approx(2 / 10)
+    assert summary.Detection_Accuracy == pytest.approx(10 / 14)
+    assert summary.FRR == pytest.approx(3 / 11)
     assert summary.FAR == pytest.approx(1 / 3)
-    assert summary.MDD_Precision == pytest.approx(2 / 4)
+    assert summary.MDD_Precision == pytest.approx(2 / 5)
     assert summary.MDD_Recall == pytest.approx(2 / 3)
-    assert summary.MDD_F1 == pytest.approx(4 / 7)
-    assert summary.Diagnostic_Accuracy == pytest.approx(1 / 2)
-    assert summary.Diagnostic_Error_Rate == pytest.approx(1 / 2)
-    assert summary.True_Diagnostic_Accuracy == pytest.approx(1 / 3)
+    assert summary.MDD_F1 == pytest.approx(0.5)
+    assert summary.Diagnostic_Accuracy == pytest.approx(1.0)
+    assert summary.Diagnostic_Error_Rate == pytest.approx(0.0)
+    assert summary.True_Diagnostic_Accuracy == pytest.approx(2 / 3)
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_U"] == "C E C C C"
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_P"] == "C C C E C"
 

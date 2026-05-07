@@ -175,16 +175,102 @@ def _canonical_edit_cost(c_sym: str, other_sym: str,
     return 0 if c_sym == other_sym else 1
 
 
+def _align_prompted_to_uttered_predicted_rows(
+    prompted: List[str],
+    uttered_aligned: List[str],
+    predicted_aligned: List[str],
+    blank: str = MDD_BLANK,
+) -> List[Tuple[str, str, str]]:
+    """Align canonical phones to an existing uttered/predicted alignment.
+
+    This implements the pairwise-plus-correction MDD protocol: U and H are
+    aligned first, then C is placed on that shared row grid so the two
+    correctness vectors are comparable. The child/canonical edit cost remains
+    the primary objective, while later tie-breaks prevent exact C/H matches from
+    being split into a predicted insertion plus a separate canonical deletion.
+    """
+    if len(uttered_aligned) != len(predicted_aligned):
+        raise ValueError("uttered and predicted alignments must have equal length")
+
+    n_p, n_rows = len(prompted), len(uttered_aligned)
+    if n_p == 0 and n_rows == 0:
+        return []
+
+    # consume_prompted, consume_existing_uttered_predicted_row.
+    transitions = [
+        (True, True),
+        (False, True),
+        (True, False),
+    ]
+
+    Score = Tuple[int, int, int, int, int]
+    State = Tuple[int, int]
+    Row = Tuple[str, str, str]
+    dp: Dict[State, Tuple[Score, Optional[State], Optional[Row]]] = {
+        (0, 0): ((0, 0, 0, 0, 0), None, None)
+    }
+
+    for i in range(n_p + 1):
+        for j in range(n_rows + 1):
+            state = (i, j)
+            if state not in dp:
+                continue
+            base_score = dp[state][0]
+            for use_p, use_row in transitions:
+                if use_p and i >= n_p:
+                    continue
+                if use_row and j >= n_rows:
+                    continue
+
+                next_state = (i + int(use_p), j + int(use_row))
+                p_sym = prompted[i] if use_p else blank
+                u_sym = uttered_aligned[j] if use_row else blank
+                h_sym = predicted_aligned[j] if use_row else blank
+                cu_cost = _canonical_edit_cost(p_sym, u_sym, blank=blank)
+                ch_cost = _canonical_edit_cost(p_sym, h_sym, blank=blank)
+                ch_exact_match = (
+                    1 if p_sym == h_sym and p_sym != blank else 0)
+                good_mdd = 1 if _mdd_bucket(
+                    p_sym, u_sym, h_sym, blank=blank) in {"TA", "CD"} else 0
+                row_count = 1
+                candidate_score: Score = (
+                    base_score[0] + cu_cost,
+                    base_score[1] - ch_exact_match,
+                    base_score[2] - good_mdd,
+                    base_score[3] + ch_cost,
+                    base_score[4] + row_count,
+                )
+                current = dp.get(next_state)
+                if current is None or candidate_score < current[0]:
+                    dp[next_state] = (
+                        candidate_score, state, (p_sym, u_sym, h_sym))
+
+    final_state = (n_p, n_rows)
+    aligned_rows: List[Row] = []
+    state: Optional[State] = final_state
+    while state is not None and state != (0, 0):
+        score, prev_state, row = dp[state]
+        del score
+        if row is not None:
+            aligned_rows.append(row)
+        state = prev_state
+    aligned_rows.reverse()
+    return aligned_rows
+
+
 def _mdd_counts(
     prompted: List[str],
     uttered: List[str],
     predicted: List[str],
     blank: str = MDD_BLANK,
 ) -> Tuple[Dict[str, int], List[str], List[str]]:
-    """Compute MDD TR/TA/FR/FA per Roumeas et al. (HAL hal-04190328), plus
-    CD/DE — TR is split by whether the predicted phoneme matches the uttered
-    one (Correct Diagnosis) or differs (Diagnosis Error). TR is reported as
-    CD + DE.
+    """Compute published pairwise-corrected MDD TR/TA/FR/FA plus CD/DE.
+
+    Following Gelin et al. (SLaTE 2023), uttered and predicted phones are first
+    Levenshtein-aligned. Prompted phones are then aligned to that shared U/H
+    grid so prompted/uttered and prompted/predicted correctness vectors have
+    comparable row coordinates. TR is split into CD/DE by checking whether the
+    predicted error phone matches the uttered error phone.
 
     Returns (counts, corr_U, corr_P) where corr_U/corr_P are space-friendly
     "C"/"E" lists for per-utt error analysis.
@@ -193,30 +279,15 @@ def _mdd_counts(
     if not prompted and not uttered and not predicted:
         return counts, [], []
 
-    u_phones, u_gaps = _align_to_prompted_slots(prompted, uttered, blank=blank)
-    h_phones, h_gaps = _align_to_prompted_slots(prompted, predicted, blank=blank)
+    u_aligned, h_aligned = _levenshtein_align(uttered, predicted, blank=blank)
+    aligned_rows = _align_prompted_to_uttered_predicted_rows(
+        prompted, u_aligned, h_aligned, blank=blank)
     corr_U: List[str] = []
     corr_P: List[str] = []
 
-    for slot_idx in range(len(prompted) + 1):
-        u_gap_aligned, h_gap_aligned = _levenshtein_align(
-            u_gaps[slot_idx], h_gaps[slot_idx], blank=blank
-        )
-        for u_sym, h_sym in zip(u_gap_aligned, h_gap_aligned):
-            _update_mdd_counts(
-                counts, blank, u_sym, h_sym, corr_U, corr_P, blank=blank
-            )
-
-        if slot_idx < len(prompted):
-            _update_mdd_counts(
-                counts,
-                prompted[slot_idx],
-                u_phones[slot_idx],
-                h_phones[slot_idx],
-                corr_U,
-                corr_P,
-                blank=blank,
-            )
+    for p_sym, u_sym, h_sym in aligned_rows:
+        _update_mdd_counts(
+            counts, p_sym, u_sym, h_sym, corr_U, corr_P, blank=blank)
 
     counts["TR"] = counts["CD"] + counts["DE"]
     return counts, corr_U, corr_P
@@ -376,6 +447,12 @@ class PhoneRecognitionSummary:
     Joint_FA: int = 0
     Joint_CD: int = 0
     Joint_DE: int = 0
+    Joint_Detection_Accuracy: Optional[float] = None
+    Joint_FRR: Optional[float] = None
+    Joint_FAR: Optional[float] = None
+    Joint_MDD_Precision: Optional[float] = None
+    Joint_MDD_Recall: Optional[float] = None
+    Joint_MDD_F1: Optional[float] = None
     Joint_Diagnostic_Accuracy: Optional[float] = None
     Joint_Diagnostic_Error_Rate: Optional[float] = None
     Joint_True_Diagnostic_Accuracy: Optional[float] = None
@@ -724,6 +801,36 @@ class PhoneRecognitionEvaluator:
                 summary.Diagnostic_Error_Rate = de_sum / tr_sum
             if (tr_sum + fa_sum) > 0:
                 summary.True_Diagnostic_Accuracy = cd_sum / (tr_sum + fa_sum)
+            joint_total = (
+                joint_tr_sum + joint_ta_sum + joint_fr_sum + joint_fa_sum)
+            if joint_total > 0:
+                summary.Joint_Detection_Accuracy = (
+                    joint_tr_sum + joint_ta_sum) / joint_total
+            if (joint_fr_sum + joint_ta_sum) > 0:
+                summary.Joint_FRR = (
+                    joint_fr_sum / (joint_fr_sum + joint_ta_sum))
+            if (joint_fa_sum + joint_tr_sum) > 0:
+                summary.Joint_FAR = (
+                    joint_fa_sum / (joint_fa_sum + joint_tr_sum))
+            if (joint_tr_sum + joint_fr_sum) > 0:
+                summary.Joint_MDD_Precision = (
+                    joint_tr_sum / (joint_tr_sum + joint_fr_sum))
+            if (joint_tr_sum + joint_fa_sum) > 0:
+                summary.Joint_MDD_Recall = (
+                    joint_tr_sum / (joint_tr_sum + joint_fa_sum))
+            if (
+                summary.Joint_MDD_Precision is not None
+                and summary.Joint_MDD_Recall is not None
+                and (summary.Joint_MDD_Precision
+                     + summary.Joint_MDD_Recall) > 0
+            ):
+                summary.Joint_MDD_F1 = (
+                    2
+                    * summary.Joint_MDD_Precision
+                    * summary.Joint_MDD_Recall
+                    / (summary.Joint_MDD_Precision
+                       + summary.Joint_MDD_Recall)
+                )
             if joint_tr_sum > 0:
                 summary.Joint_Diagnostic_Accuracy = (
                     joint_cd_sum / joint_tr_sum)
@@ -768,6 +875,12 @@ class PhoneRecognitionEvaluator:
             t.add_row("True_Diagnostic_Accuracy", _f(summary.True_Diagnostic_Accuracy))
             t.add_row("Joint TR / TA / FR / FA", f"{summary.Joint_TR} / {summary.Joint_TA} / {summary.Joint_FR} / {summary.Joint_FA}")
             t.add_row("Joint CD / DE", f"{summary.Joint_CD} / {summary.Joint_DE}")
+            t.add_row("Joint_Detection_Accuracy", _f(summary.Joint_Detection_Accuracy))
+            t.add_row("Joint_FRR", _f(summary.Joint_FRR))
+            t.add_row("Joint_FAR", _f(summary.Joint_FAR))
+            t.add_row("Joint_MDD_Precision", _f(summary.Joint_MDD_Precision))
+            t.add_row("Joint_MDD_Recall", _f(summary.Joint_MDD_Recall))
+            t.add_row("Joint_MDD_F1", _f(summary.Joint_MDD_F1))
             t.add_row("Joint_Diagnostic_Accuracy", _f(summary.Joint_Diagnostic_Accuracy))
             t.add_row("Joint_Diagnostic_Error_Rate", _f(summary.Joint_Diagnostic_Error_Rate))
             t.add_row("Joint_True_Diagnostic_Accuracy", _f(summary.Joint_True_Diagnostic_Accuracy))
@@ -846,6 +959,12 @@ class PhoneRecognitionEvaluator:
             "Joint_FA",
             "Joint_CD",
             "Joint_DE",
+            "Joint_Detection_Accuracy",
+            "Joint_FRR",
+            "Joint_FAR",
+            "Joint_MDD_Precision",
+            "Joint_MDD_Recall",
+            "Joint_MDD_F1",
             "Joint_Diagnostic_Accuracy",
             "Joint_Diagnostic_Error_Rate",
             "Joint_True_Diagnostic_Accuracy",
@@ -879,12 +998,18 @@ class PhoneRecognitionEvaluator:
                 summary.Joint_FA,
                 summary.Joint_CD,
                 summary.Joint_DE,
+                _fmt(summary.Joint_Detection_Accuracy),
+                _fmt(summary.Joint_FRR),
+                _fmt(summary.Joint_FAR),
+                _fmt(summary.Joint_MDD_Precision),
+                _fmt(summary.Joint_MDD_Recall),
+                _fmt(summary.Joint_MDD_F1),
                 _fmt(summary.Joint_Diagnostic_Accuracy),
                 _fmt(summary.Joint_Diagnostic_Error_Rate),
                 _fmt(summary.Joint_True_Diagnostic_Accuracy),
             ]
         else:
-            mdd_cells = [""] * 24
+            mdd_cells = [""] * 30
 
         row = [
             evalname,

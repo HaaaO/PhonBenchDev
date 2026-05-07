@@ -16,9 +16,9 @@ its predicted error matches the speaker's actual error. This requires the
 uttered and predicted phones to be compared at the same human-intended error
 location.
 
-## Limitation of Pairwise Alignment
+## Alignment Methods
 
-The current strict metric aligns the sequences separately:
+The original strict metric aligned the sequences separately:
 
 ```text
 canonical -> uttered
@@ -39,6 +39,19 @@ gap placement. With insertions and deletions, multiple alignments can have the
 same edit distance, but only some are linguistically sensible. For example, in
 the `penguin` case, the model's extra `ɹ` can shift later phones and cause a
 correctly recognized child error to be counted as wrong.
+
+The current strict metric now follows a published pairwise-plus-correction
+style instead:
+
+```text
+uttered -> predicted
+prompted -> shared uttered/predicted row grid
+then compute prompted/uttered and prompted/predicted correctness vectors
+```
+
+This is still pairwise/constrained because the uttered/predicted alignment is
+chosen first, but it avoids the worst independent-slot mismatch by forcing both
+correctness vectors onto one shared row grid.
 
 ## Joint Three-Way Alignment
 
