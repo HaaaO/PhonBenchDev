@@ -1,0 +1,30 @@
+# @package _global_
+
+# A/B config for OpenAI gpt-realtime-2 using out-of-band response input with
+# forced function-call output. The baseline Realtime config remains
+# transcribe_gptrealtime2.yaml with audio_delivery_mode=buffer.
+
+defaults:
+  - /experiment/inference/transcribe_gptrealtime2
+
+tags: ["gptrealtime2", "response_input_tool", "inference"]
+
+inference:
+  inference_runner:
+    client_config:
+      audio_delivery_mode: response_input_tool
+      # This mode always attaches the transcription tool to response.create and
+      # forces that function. Keep session-level tools disabled.
+      use_tool: false
+      response_schema:
+        type: OBJECT
+        required: ["transcription"]
+        additionalProperties: false
+        properties:
+          transcription:
+            type: STRING
+            description: "Exactly one standard IPA symbol sequence. No slashes, no brackets, no alternatives."
+            minLength: 1
+            pattern: "^[^/\\[\\]]+$"
+      retry_no_audio_response: true
+      retry_empty_response: true

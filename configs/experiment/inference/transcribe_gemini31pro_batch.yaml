@@ -1,0 +1,46 @@
+# @package _global_
+
+# Gemini Batch submit config. This is consumed by:
+#   python scripts/gemini_batch.py submit experiment=inference/transcribe_gemini31pro_batch ...
+#
+# It is intentionally batch-oriented: use scripts/gemini_batch.py submit/status/collect
+# instead of src/main.py for this model.
+
+defaults:
+  - /prompt: transcribe_ipa
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["gemini", "batch", "inference"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: false
+
+inference:
+  num_workers: 1
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym", "canonical_ipa"]
+  out_file: ${paths.output_dir}/transcription.jsonl
+  limit_samples: null
+
+  inference_runner:
+    _target_: src.model.gemini.transcribe.GeminiInference
+    client_config:
+      model_name: "gemini-3.1-pro-preview"
+      api_key: ${oc.env:GEMINI_API_KEY}
+      temperature: 1.0
+      top_p: 1.0
+      seed: ${seed}
+      thinking_budget: 0
+      retry_config:
+        max_retries: 3
+        initial_delay: 1.0
+        backoff_factor: 2.0
+    cache_key_field: "utt_id"
+    cache_path: "${paths.output_dir}/transcription.cache.jsonl"
+    error_log_path: "${paths.output_dir}/transcription.errors.jsonl"
+    resume: true

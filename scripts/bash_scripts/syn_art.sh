@@ -126,6 +126,15 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
 
+# 8c2. GPT-Realtime-2 via OpenAI Realtime WebSocket
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2 \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptrealtime2_${TAG}
+
 # 8d. Gemini 2.5 Flash + canonical IPA prompt
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
@@ -147,6 +156,17 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     data.require_canonical=True \
 #     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
+
+# 8e2. GPT-Realtime-2 + canonical IPA prompt
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2 \
+#     prompt=transcribe_ipa_canonical \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_canonical=True \
+#     task_name=inf_${DATASET}_gptrealtime2_canonical_${TAG}
 
 # 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
 # start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
@@ -204,7 +224,7 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gemini_canonical gptaudio_canonical qwen25omni3b qwen25omni3b_canonical babar huper huper_corrector)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical babar huper huper_corrector)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

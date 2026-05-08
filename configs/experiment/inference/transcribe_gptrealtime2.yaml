@@ -1,0 +1,55 @@
+# @package _global_
+
+# This config executes IPA transcription with OpenAI gpt-realtime-2.
+# It uses the Realtime API over server-side WebSocket and opens one
+# independent session per utterance.
+
+defaults:
+  - /prompt: transcribe_ipa
+  - override /logger: csv
+  - override /model: null
+  - override /model/net: null
+
+task_name: ???
+tags: ["gptrealtime2", "inference"]
+
+seed: 42
+
+train: false
+test: false
+distributed_predict: True
+
+inference:
+  # API-based realtime model: keep one worker to avoid rate-limit bursts and
+  # make per-utterance session isolation easy to audit.
+  num_workers: 1
+  passthrough_keys: ["target", "split", "utt_id", "metadata_idx", "lang_sym", "canonical_ipa"]
+  out_file: ${paths.output_dir}/transcription.jsonl
+  limit_samples: null
+
+  inference_runner:
+    _target_: src.model.openai_realtime.transcribe.GptRealtimeInference
+    client_config:
+      model_name: "gpt-realtime-2"
+      api_key: ${oc.env:OPENAI_API_KEY}
+      input_sample_rate: 24000
+      max_tokens: "inf"
+      timeout: 600.0
+      connect_timeout: 30.0
+      use_tool: false
+      tool_choice: auto
+      # Empirically, the audio-buffer path is more reliable for these very
+      # short isolated-word clips than full conversation-item audio messages.
+      # The client still waits for the server's buffer commit/item ack before
+      # requesting a response.
+      audio_delivery_mode: buffer
+      retry_no_audio_response: true
+      retry_empty_response: true
+      retry_config:
+        max_retries: 5
+        initial_delay: 1.0
+        backoff_factor: 2.0
+    cache_key_field: "utt_id"
+    cache_path: "${paths.output_dir}/transcription.cache.jsonl"
+    error_log_path: "${paths.output_dir}/transcription.errors.jsonl"
+    resume: True

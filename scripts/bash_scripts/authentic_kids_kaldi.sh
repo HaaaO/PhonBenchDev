@@ -131,6 +131,24 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
 
+# 8c2. GPT-Realtime-2 via OpenAI Realtime WebSocket (buffer baseline)
+python src/main.py \
+    experiment=inference/transcribe_gptrealtime2 \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_gptrealtime2_${TAG}
+
+# 8c3. GPT-Realtime-2 via response.create input + forced tool call
+python src/main.py \
+    experiment=inference/transcribe_gptrealtime2_response_input_tool \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_gptrealtime2_response_input_tool_${TAG}
+
 # # 8d. Gemini 2.5 Flash + canonical IPA prompt
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
@@ -152,6 +170,17 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     data.portable_wavscp=True \
 #     data.require_canonical=True \
 #     task_name=inf_${DATASET}_gptaudio_canonical_${TAG}
+
+# # 8e2. GPT-Realtime-2 + canonical IPA prompt
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2 \
+#     prompt=transcribe_ipa_canonical \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_canonical=True \
+#     task_name=inf_${DATASET}_gptrealtime2_canonical_${TAG}
 
 # 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
 # start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
@@ -226,13 +255,13 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_babar_${TAG}
 
 # # # 10. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
-python src/main.py \
-    experiment=inference/transcribe_huper \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    task_name=inf_${DATASET}_huper_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_huper \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_huper_${TAG}
 
 # # # 11. HuPER Corrector (audio + canonical IPA -> realized IPA)
 # python src/main.py \
@@ -273,7 +302,7 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gemini_canonical gptaudio_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

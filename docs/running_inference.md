@@ -156,3 +156,29 @@ Where:
 - For GPU inference, set `device: cuda` in `inference_runner`
 - Check `src/core/distributed_inference.py` for implementation details
 
+## OpenAI Realtime Inference
+
+`configs/experiment/inference/transcribe_gptrealtime2.yaml` runs
+`gpt-realtime-2` through the OpenAI Realtime API over server-side WebSocket.
+It opens and closes one Realtime session per utterance so benchmark examples do
+not share conversation context.
+
+Example smoke test:
+
+```bash
+OPENAI_API_KEY=... python src/main.py \
+    experiment=inference/transcribe_gptrealtime2 \
+    data=powsmeval \
+    data.dataset_name=authentic_kids_kaldi \
+    data.data_dir=/n/iqss_sponsored/Lab/zshi/prism-evalsets \
+    data.portable_wavscp=True \
+    inference.limit_samples=3 \
+    task_name=inf_authentic_kids_kaldi_gptrealtime2_smoke
+```
+
+For fair comparisons, use `transcribe_gptrealtime2` for audio-only runs and
+`prompt=transcribe_ipa_canonical data.require_canonical=True` only when
+comparing against other canonical-prompt runs. Accuracy should be scored with
+the same `processed_transcript` field and the same phone-recognition metrics as
+the other models; connection setup time should be reported separately from
+accuracy.

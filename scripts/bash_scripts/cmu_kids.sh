@@ -112,6 +112,15 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
 
+# 9b. GPT-Realtime-2 via OpenAI Realtime WebSocket
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2 \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptrealtime2_${TAG}
+
 # 10. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 python src/main.py \
     experiment=inference/transcribe_babar \
@@ -134,7 +143,7 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gptaudio babar huper)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gptaudio gptrealtime2 babar huper)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"

@@ -65,4 +65,5 @@ epitran==1.34.0
 # API-based models
 google-genai==1.54.0
 openai>=1.99.0
+websockets>=15.0.0
 azure-cognitiveservices-speech
