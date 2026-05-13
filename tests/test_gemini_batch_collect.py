@@ -141,6 +141,25 @@ def test_build_generate_content_request_uses_audio_prompt_and_schema():
     assert request["generationConfig"]["responseMimeType"] == "application/json"
 
 
+def test_generation_config_omits_null_thinking_budget():
+    config = gemini_batch.generation_config_from_client_config(
+        {
+            "temperature": 1.0,
+            "top_p": 1.0,
+            "seed": 42,
+            "thinking_budget": None,
+            "response_schema": {
+                "type": "OBJECT",
+                "required": ["transcription"],
+                "properties": {"transcription": {"type": "STRING"}},
+            },
+        }
+    )
+
+    assert "thinkingConfig" not in config
+    assert config["responseMimeType"] == "application/json"
+
+
 def test_status_writes_batch_status_without_network(tmp_path, monkeypatch, capsys):
     job_path = tmp_path / "batch_job.json"
     job_path.write_text(

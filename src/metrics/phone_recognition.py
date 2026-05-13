@@ -426,6 +426,7 @@ class PhoneRecognitionSummary:
     inventory: setkeydict[float]
     # MDD aggregates — populated only when canonical IPA is provided.
     has_mdd: bool = False
+    has_joint_mdd: bool = False
     TR: int = 0
     TA: int = 0
     FR: int = 0
@@ -472,8 +473,13 @@ class PhoneRecognitionEvaluator:
         { utt_id: {"prediction": str, "transcription": str, ...}, ... }
     """
 
-    def __init__(self, normalize_ipa: bool = True):
+    def __init__(
+        self,
+        normalize_ipa: bool = True,
+        compute_joint_mdd: bool = False,
+    ):
         self.normalize_ipa = normalize_ipa
+        self.compute_joint_mdd = compute_joint_mdd
         self.dst = panphon.distance.Distance()
 
     @staticmethod
@@ -584,33 +590,37 @@ class PhoneRecognitionEvaluator:
         u_segs = self._mdd_segments(uttered)
         h_segs = self._mdd_segments(predicted)
         counts, corr_U, corr_P = _mdd_counts(p_segs, u_segs, h_segs)
-        (joint_counts, joint_corr_U, joint_corr_P, joint_prompted,
-         joint_uttered, joint_predicted) = _joint_mdd_counts(
-             p_segs, u_segs, h_segs)
-        return {
+        out = {
             "TR": counts["TR"],
             "TA": counts["TA"],
             "FR": counts["FR"],
             "FA": counts["FA"],
             "CD": counts["CD"],
             "DE": counts["DE"],
-            "Joint_TR": joint_counts["TR"],
-            "Joint_TA": joint_counts["TA"],
-            "Joint_FR": joint_counts["FR"],
-            "Joint_FA": joint_counts["FA"],
-            "Joint_CD": joint_counts["CD"],
-            "Joint_DE": joint_counts["DE"],
             "prompted": " ".join(p_segs),
             "uttered": " ".join(u_segs),
             "predicted": " ".join(h_segs),
             "corr_U": " ".join(corr_U),
             "corr_P": " ".join(corr_P),
-            "joint_prompted": " ".join(joint_prompted),
-            "joint_uttered": " ".join(joint_uttered),
-            "joint_predicted": " ".join(joint_predicted),
-            "joint_corr_U": " ".join(joint_corr_U),
-            "joint_corr_P": " ".join(joint_corr_P),
         }
+        if self.compute_joint_mdd:
+            (joint_counts, joint_corr_U, joint_corr_P, joint_prompted,
+             joint_uttered, joint_predicted) = _joint_mdd_counts(
+                 p_segs, u_segs, h_segs)
+            out.update({
+                "Joint_TR": joint_counts["TR"],
+                "Joint_TA": joint_counts["TA"],
+                "Joint_FR": joint_counts["FR"],
+                "Joint_FA": joint_counts["FA"],
+                "Joint_CD": joint_counts["CD"],
+                "Joint_DE": joint_counts["DE"],
+                "joint_prompted": " ".join(joint_prompted),
+                "joint_uttered": " ".join(joint_uttered),
+                "joint_predicted": " ".join(joint_predicted),
+                "joint_corr_U": " ".join(joint_corr_U),
+                "joint_corr_P": " ".join(joint_corr_P),
+            })
+        return out
 
     @classmethod
     def _get_phone_inventory_metrics(
@@ -731,12 +741,13 @@ class PhoneRecognitionEvaluator:
                 fa_sum += mdd["FA"]
                 cd_sum += mdd["CD"]
                 de_sum += mdd["DE"]
-                joint_tr_sum += mdd["Joint_TR"]
-                joint_ta_sum += mdd["Joint_TA"]
-                joint_fr_sum += mdd["Joint_FR"]
-                joint_fa_sum += mdd["Joint_FA"]
-                joint_cd_sum += mdd["Joint_CD"]
-                joint_de_sum += mdd["Joint_DE"]
+                if self.compute_joint_mdd:
+                    joint_tr_sum += mdd["Joint_TR"]
+                    joint_ta_sum += mdd["Joint_TA"]
+                    joint_fr_sum += mdd["Joint_FR"]
+                    joint_fa_sum += mdd["Joint_FA"]
+                    joint_cd_sum += mdd["Joint_CD"]
+                    joint_de_sum += mdd["Joint_DE"]
                 instance_metrics[utt_id]["mdd"] = mdd
             elif "canonical" in sample:
                 # canonical key present but empty → utt missing from text.canonical
@@ -768,12 +779,6 @@ class PhoneRecognitionEvaluator:
             summary.FA = fa_sum
             summary.CD = cd_sum
             summary.DE = de_sum
-            summary.Joint_TR = joint_tr_sum
-            summary.Joint_TA = joint_ta_sum
-            summary.Joint_FR = joint_fr_sum
-            summary.Joint_FA = joint_fa_sum
-            summary.Joint_CD = joint_cd_sum
-            summary.Joint_DE = joint_de_sum
             total = tr_sum + ta_sum + fr_sum + fa_sum
             if total > 0:
                 summary.Detection_Accuracy = (tr_sum + ta_sum) / total
@@ -801,44 +806,52 @@ class PhoneRecognitionEvaluator:
                 summary.Diagnostic_Error_Rate = de_sum / tr_sum
             if (tr_sum + fa_sum) > 0:
                 summary.True_Diagnostic_Accuracy = cd_sum / (tr_sum + fa_sum)
-            joint_total = (
-                joint_tr_sum + joint_ta_sum + joint_fr_sum + joint_fa_sum)
-            if joint_total > 0:
-                summary.Joint_Detection_Accuracy = (
-                    joint_tr_sum + joint_ta_sum) / joint_total
-            if (joint_fr_sum + joint_ta_sum) > 0:
-                summary.Joint_FRR = (
-                    joint_fr_sum / (joint_fr_sum + joint_ta_sum))
-            if (joint_fa_sum + joint_tr_sum) > 0:
-                summary.Joint_FAR = (
-                    joint_fa_sum / (joint_fa_sum + joint_tr_sum))
-            if (joint_tr_sum + joint_fr_sum) > 0:
-                summary.Joint_MDD_Precision = (
-                    joint_tr_sum / (joint_tr_sum + joint_fr_sum))
-            if (joint_tr_sum + joint_fa_sum) > 0:
-                summary.Joint_MDD_Recall = (
-                    joint_tr_sum / (joint_tr_sum + joint_fa_sum))
-            if (
-                summary.Joint_MDD_Precision is not None
-                and summary.Joint_MDD_Recall is not None
-                and (summary.Joint_MDD_Precision
-                     + summary.Joint_MDD_Recall) > 0
-            ):
-                summary.Joint_MDD_F1 = (
-                    2
-                    * summary.Joint_MDD_Precision
-                    * summary.Joint_MDD_Recall
-                    / (summary.Joint_MDD_Precision
-                       + summary.Joint_MDD_Recall)
-                )
-            if joint_tr_sum > 0:
-                summary.Joint_Diagnostic_Accuracy = (
-                    joint_cd_sum / joint_tr_sum)
-                summary.Joint_Diagnostic_Error_Rate = (
-                    joint_de_sum / joint_tr_sum)
-            if (joint_tr_sum + joint_fa_sum) > 0:
-                summary.Joint_True_Diagnostic_Accuracy = (
-                    joint_cd_sum / (joint_tr_sum + joint_fa_sum))
+            if self.compute_joint_mdd:
+                summary.has_joint_mdd = True
+                summary.Joint_TR = joint_tr_sum
+                summary.Joint_TA = joint_ta_sum
+                summary.Joint_FR = joint_fr_sum
+                summary.Joint_FA = joint_fa_sum
+                summary.Joint_CD = joint_cd_sum
+                summary.Joint_DE = joint_de_sum
+                joint_total = (
+                    joint_tr_sum + joint_ta_sum + joint_fr_sum + joint_fa_sum)
+                if joint_total > 0:
+                    summary.Joint_Detection_Accuracy = (
+                        joint_tr_sum + joint_ta_sum) / joint_total
+                if (joint_fr_sum + joint_ta_sum) > 0:
+                    summary.Joint_FRR = (
+                        joint_fr_sum / (joint_fr_sum + joint_ta_sum))
+                if (joint_fa_sum + joint_tr_sum) > 0:
+                    summary.Joint_FAR = (
+                        joint_fa_sum / (joint_fa_sum + joint_tr_sum))
+                if (joint_tr_sum + joint_fr_sum) > 0:
+                    summary.Joint_MDD_Precision = (
+                        joint_tr_sum / (joint_tr_sum + joint_fr_sum))
+                if (joint_tr_sum + joint_fa_sum) > 0:
+                    summary.Joint_MDD_Recall = (
+                        joint_tr_sum / (joint_tr_sum + joint_fa_sum))
+                if (
+                    summary.Joint_MDD_Precision is not None
+                    and summary.Joint_MDD_Recall is not None
+                    and (summary.Joint_MDD_Precision
+                         + summary.Joint_MDD_Recall) > 0
+                ):
+                    summary.Joint_MDD_F1 = (
+                        2
+                        * summary.Joint_MDD_Precision
+                        * summary.Joint_MDD_Recall
+                        / (summary.Joint_MDD_Precision
+                           + summary.Joint_MDD_Recall)
+                    )
+                if joint_tr_sum > 0:
+                    summary.Joint_Diagnostic_Accuracy = (
+                        joint_cd_sum / joint_tr_sum)
+                    summary.Joint_Diagnostic_Error_Rate = (
+                        joint_de_sum / joint_tr_sum)
+                if (joint_tr_sum + joint_fa_sum) > 0:
+                    summary.Joint_True_Diagnostic_Accuracy = (
+                        joint_cd_sum / (joint_tr_sum + joint_fa_sum))
 
         return summary, instance_metrics
 
@@ -873,17 +886,18 @@ class PhoneRecognitionEvaluator:
             t.add_row("Diagnostic_Accuracy", _f(summary.Diagnostic_Accuracy))
             t.add_row("Diagnostic_Error_Rate", _f(summary.Diagnostic_Error_Rate))
             t.add_row("True_Diagnostic_Accuracy", _f(summary.True_Diagnostic_Accuracy))
-            t.add_row("Joint TR / TA / FR / FA", f"{summary.Joint_TR} / {summary.Joint_TA} / {summary.Joint_FR} / {summary.Joint_FA}")
-            t.add_row("Joint CD / DE", f"{summary.Joint_CD} / {summary.Joint_DE}")
-            t.add_row("Joint_Detection_Accuracy", _f(summary.Joint_Detection_Accuracy))
-            t.add_row("Joint_FRR", _f(summary.Joint_FRR))
-            t.add_row("Joint_FAR", _f(summary.Joint_FAR))
-            t.add_row("Joint_MDD_Precision", _f(summary.Joint_MDD_Precision))
-            t.add_row("Joint_MDD_Recall", _f(summary.Joint_MDD_Recall))
-            t.add_row("Joint_MDD_F1", _f(summary.Joint_MDD_F1))
-            t.add_row("Joint_Diagnostic_Accuracy", _f(summary.Joint_Diagnostic_Accuracy))
-            t.add_row("Joint_Diagnostic_Error_Rate", _f(summary.Joint_Diagnostic_Error_Rate))
-            t.add_row("Joint_True_Diagnostic_Accuracy", _f(summary.Joint_True_Diagnostic_Accuracy))
+            if summary.has_joint_mdd:
+                t.add_row("Joint TR / TA / FR / FA", f"{summary.Joint_TR} / {summary.Joint_TA} / {summary.Joint_FR} / {summary.Joint_FA}")
+                t.add_row("Joint CD / DE", f"{summary.Joint_CD} / {summary.Joint_DE}")
+                t.add_row("Joint_Detection_Accuracy", _f(summary.Joint_Detection_Accuracy))
+                t.add_row("Joint_FRR", _f(summary.Joint_FRR))
+                t.add_row("Joint_FAR", _f(summary.Joint_FAR))
+                t.add_row("Joint_MDD_Precision", _f(summary.Joint_MDD_Precision))
+                t.add_row("Joint_MDD_Recall", _f(summary.Joint_MDD_Recall))
+                t.add_row("Joint_MDD_F1", _f(summary.Joint_MDD_F1))
+                t.add_row("Joint_Diagnostic_Accuracy", _f(summary.Joint_Diagnostic_Accuracy))
+                t.add_row("Joint_Diagnostic_Error_Rate", _f(summary.Joint_Diagnostic_Error_Rate))
+                t.add_row("Joint_True_Diagnostic_Accuracy", _f(summary.Joint_True_Diagnostic_Accuracy))
         Console().print(t)
 
         PhoneRecognitionEvaluator.pretty_print_inventory_metrics(summary.inventory)
@@ -934,10 +948,12 @@ class PhoneRecognitionEvaluator:
         import csv
         import os
 
-        headers = [
+        base_headers = [
             "eval_name",
             "FER (%)",
             "PER (%)",
+        ]
+        mdd_headers = [
             "TR",
             "TA",
             "FR",
@@ -953,6 +969,8 @@ class PhoneRecognitionEvaluator:
             "Diagnostic_Accuracy",
             "Diagnostic_Error_Rate",
             "True_Diagnostic_Accuracy",
+        ]
+        joint_headers = [
             "Joint_TR",
             "Joint_TA",
             "Joint_FR",
@@ -968,6 +986,11 @@ class PhoneRecognitionEvaluator:
             "Joint_Diagnostic_Accuracy",
             "Joint_Diagnostic_Error_Rate",
             "Joint_True_Diagnostic_Accuracy",
+        ]
+        headers = [
+            *base_headers,
+            *mdd_headers,
+            *(joint_headers if summary.has_joint_mdd else []),
             "N",
             "phones",
         ]
@@ -992,24 +1015,30 @@ class PhoneRecognitionEvaluator:
                 _fmt(summary.Diagnostic_Accuracy),
                 _fmt(summary.Diagnostic_Error_Rate),
                 _fmt(summary.True_Diagnostic_Accuracy),
-                summary.Joint_TR,
-                summary.Joint_TA,
-                summary.Joint_FR,
-                summary.Joint_FA,
-                summary.Joint_CD,
-                summary.Joint_DE,
-                _fmt(summary.Joint_Detection_Accuracy),
-                _fmt(summary.Joint_FRR),
-                _fmt(summary.Joint_FAR),
-                _fmt(summary.Joint_MDD_Precision),
-                _fmt(summary.Joint_MDD_Recall),
-                _fmt(summary.Joint_MDD_F1),
-                _fmt(summary.Joint_Diagnostic_Accuracy),
-                _fmt(summary.Joint_Diagnostic_Error_Rate),
-                _fmt(summary.Joint_True_Diagnostic_Accuracy),
             ]
+            if summary.has_joint_mdd:
+                mdd_cells.extend([
+                    summary.Joint_TR,
+                    summary.Joint_TA,
+                    summary.Joint_FR,
+                    summary.Joint_FA,
+                    summary.Joint_CD,
+                    summary.Joint_DE,
+                    _fmt(summary.Joint_Detection_Accuracy),
+                    _fmt(summary.Joint_FRR),
+                    _fmt(summary.Joint_FAR),
+                    _fmt(summary.Joint_MDD_Precision),
+                    _fmt(summary.Joint_MDD_Recall),
+                    _fmt(summary.Joint_MDD_F1),
+                    _fmt(summary.Joint_Diagnostic_Accuracy),
+                    _fmt(summary.Joint_Diagnostic_Error_Rate),
+                    _fmt(summary.Joint_True_Diagnostic_Accuracy),
+                ])
         else:
-            mdd_cells = [""] * 30
+            mdd_cells = [""] * (
+                len(mdd_headers)
+                + (len(joint_headers) if summary.has_joint_mdd else 0)
+            )
 
         row = [
             evalname,
@@ -1280,7 +1309,12 @@ def add_args(parser: argparse.ArgumentParser) -> None:
         "--mdd_joint_per_utt_file",
         type=str,
         default=None,
-        help="Output path for experimental joint MDD CSV. Defaults to <output_file_dir>/mdd_joint_per_utt.csv.",
+        help="Output path for experimental joint MDD CSV. Only used with --enable_joint_mdd. Defaults to <output_file_dir>/mdd_joint_per_utt.csv.",
+    )
+    parser.add_argument(
+        "--enable_joint_mdd",
+        action="store_true",
+        help="Compute experimental 3-way joint MDD alignment metrics. Disabled by default because it is expensive on long utterances.",
     )
 
 
@@ -1313,7 +1347,10 @@ if __name__ == "__main__":
     mdd_per_utt_rows: List[Dict[str, Any]] = []
     mdd_joint_per_utt_rows: List[Dict[str, Any]] = []
     for lang, preds in tqdm(loaded_predictions.items(), desc="Evaluating languages"):
-        evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
+        evaluator = PhoneRecognitionEvaluator(
+            normalize_ipa=True,
+            compute_joint_mdd=args.enable_joint_mdd,
+        )
         summary, instance_metrics = evaluator.evaluate(preds)
         inventories.append(summary.inventory)
         if args.output_file:
@@ -1344,24 +1381,25 @@ if __name__ == "__main__":
                         "DE": mdd["DE"],
                     }
                 )
-                mdd_joint_per_utt_rows.append(
-                    {
-                        "eval_name": args.evaluation_name,
-                        "language": lang,
-                        "utt_id": utt_id,
-                        "joint_prompted": mdd["joint_prompted"],
-                        "joint_uttered": mdd["joint_uttered"],
-                        "joint_predicted": mdd["joint_predicted"],
-                        "joint_corr_U": mdd["joint_corr_U"],
-                        "joint_corr_P": mdd["joint_corr_P"],
-                        "Joint_TR": mdd["Joint_TR"],
-                        "Joint_TA": mdd["Joint_TA"],
-                        "Joint_FR": mdd["Joint_FR"],
-                        "Joint_FA": mdd["Joint_FA"],
-                        "Joint_CD": mdd["Joint_CD"],
-                        "Joint_DE": mdd["Joint_DE"],
-                    }
-                )
+                if summary.has_joint_mdd:
+                    mdd_joint_per_utt_rows.append(
+                        {
+                            "eval_name": args.evaluation_name,
+                            "language": lang,
+                            "utt_id": utt_id,
+                            "joint_prompted": mdd["joint_prompted"],
+                            "joint_uttered": mdd["joint_uttered"],
+                            "joint_predicted": mdd["joint_predicted"],
+                            "joint_corr_U": mdd["joint_corr_U"],
+                            "joint_corr_P": mdd["joint_corr_P"],
+                            "Joint_TR": mdd["Joint_TR"],
+                            "Joint_TA": mdd["Joint_TA"],
+                            "Joint_FR": mdd["Joint_FR"],
+                            "Joint_FA": mdd["Joint_FA"],
+                            "Joint_CD": mdd["Joint_CD"],
+                            "Joint_DE": mdd["Joint_DE"],
+                        }
+                    )
 
     if mdd_per_utt_rows:
         mdd_path = args.mdd_per_utt_file

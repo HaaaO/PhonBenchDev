@@ -54,13 +54,13 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_lv60_${TAG}
 
 # # # 4. W2V2P-XLSR53
-# python src/main.py \
-#     experiment=inference/transcribe_w2v2ph \
-#     data=powsmeval \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
-#     task_name=inf_${DATASET}_xlsr53_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_w2v2ph \
+    data=powsmeval \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
+    task_name=inf_${DATASET}_xlsr53_${TAG}
 
 # # # 5. MultiIPA (ctag)
 # python src/main.py \
@@ -81,13 +81,13 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # # 7. ZIPA-CTC-NS
-# python src/main.py \
-#     experiment=inference/transcribe_zipactc \
-#     data=powsmeval \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
-#     task_name=inf_${DATASET}_zipactc_ns_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_zipactc \
+    data=powsmeval \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+    task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8a. Gemini 2.5 Flash (default in transcribe_gemini.yaml)
 # python src/main.py \

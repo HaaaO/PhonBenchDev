@@ -412,6 +412,7 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
     summary, instance_metrics = evaluator.evaluate(test_data)
 
     assert summary.has_mdd is True
+    assert summary.has_joint_mdd is False
     assert summary.TA == 8
     assert summary.FR == 3
     assert summary.FA == 1
@@ -429,6 +430,29 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
     assert summary.True_Diagnostic_Accuracy == pytest.approx(2 / 3)
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_U"] == "C E C C C"
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_P"] == "C C C E C"
+    assert "Joint_TR" not in instance_metrics["fa_and_fr"]["mdd"]
+
+
+def test_evaluate_can_opt_into_joint_mdd_summary():
+    evaluator = PhoneRecognitionEvaluator(
+        normalize_ipa=True,
+        compute_joint_mdd=True,
+    )
+
+    test_data = {
+        "utt": {
+            "canonical": "p ɛ ŋ ɡ w ɪ n",
+            "transcription": "p ɪ m w ɪ n",
+            "prediction": "p ɹ ɪ m w ɪ n",
+        },
+    }
+
+    summary, instance_metrics = evaluator.evaluate(test_data)
+
+    assert summary.has_joint_mdd is True
+    assert summary.Joint_TA == 4
+    assert summary.Joint_CD == 3
+    assert "Joint_TR" in instance_metrics["utt"]["mdd"]
 
 
 def test_mdd_alignment_preserves_space_separated_phone_tokens():

@@ -63,14 +63,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_lv60_${TAG}
 
 # # # 4. W2V2P-XLSR53
-# python src/main.py \
-#     experiment=inference/transcribe_w2v2ph \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
-#     task_name=inf_${DATASET}_xlsr53_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_w2v2ph \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
+    task_name=inf_${DATASET}_xlsr53_${TAG}
 
 # # # 5. MultiIPA (ctag)
 # python src/main.py \
@@ -93,14 +93,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # 7. ZIPA-CTC-NS
-# python src/main.py \
-#     experiment=inference/transcribe_zipactc \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
-#     task_name=inf_${DATASET}_zipactc_ns_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_zipactc \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+    task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8a. Gemini 2.5 Flash (default in transcribe_gemini.yaml)
 # python src/main.py \
@@ -132,22 +132,22 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
 
 # 8c2. GPT-Realtime-2 via OpenAI Realtime WebSocket (buffer baseline)
-python src/main.py \
-    experiment=inference/transcribe_gptrealtime2 \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    task_name=inf_${DATASET}_gptrealtime2_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2 \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptrealtime2_${TAG}
 
 # 8c3. GPT-Realtime-2 via response.create input + forced tool call
-python src/main.py \
-    experiment=inference/transcribe_gptrealtime2_response_input_tool \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    task_name=inf_${DATASET}_gptrealtime2_response_input_tool_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2_response_input_tool \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptrealtime2_response_input_tool_${TAG}
 
 # # 8d. Gemini 2.5 Flash + canonical IPA prompt
 # python src/main.py \
@@ -246,22 +246,22 @@ python src/main.py \
 # trap - EXIT
 
 # 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
-# python src/main.py \
-#     experiment=inference/transcribe_babar \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_babar_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_babar \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_babar_${TAG}
 
 # # # 10. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
-# python src/main.py \
-#     experiment=inference/transcribe_huper \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_huper_${TAG}
+python src/main.py \
+    experiment=inference/transcribe_huper \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_huper_${TAG}
 
 # # # 11. HuPER Corrector (audio + canonical IPA -> realized IPA)
 # python src/main.py \
