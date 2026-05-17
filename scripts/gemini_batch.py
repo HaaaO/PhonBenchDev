@@ -915,9 +915,9 @@ def run_evaluation(
         elif manifest_has_canonical_field(manifest):
             canonical_args = ["--canonical_field", "canonical_ipa"]
         else:
-            print(
-                "WARNING: no canonical file/field found; MDD metrics will not be computed",
-                flush=True,
+            raise ValueError(
+                "CMU39-projected evaluation requires a canonical IPA file or "
+                "canonical_ipa passthrough field."
             )
 
     command = [

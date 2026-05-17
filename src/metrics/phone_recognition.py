@@ -1,5 +1,9 @@
 """Evaluate phone recognition output using panphon feature-based metrics.
 
+Evaluation projects canonical, uttered, and predicted IPA onto a CMU39-style
+IPA inventory before scoring. Every run must provide canonical IPA via
+`--canonical_file` or `--canonical_field`.
+
 Usage:
     python -m src.metrics.phone_recognition \
         --prediction_file exp/runs/inf_doreco_xlsr53/20251220_085642/transcription.withlang.json \
@@ -61,6 +65,10 @@ from phone_inventory_metric.common import setkeydict
 from rich.console import Console
 from rich.table import Table
 
+from src.core.cmu39_projection import (
+    CMU39_PROJECTION_PROFILE,
+    project_ipa_triplet_to_cmu39,
+)
 from src.utils import RankedLogger
 
 log = RankedLogger(__name__, rank_zero_only=True)
@@ -461,7 +469,7 @@ class PhoneRecognitionSummary:
 
 class PhoneRecognitionEvaluator:
     """
-    Evaluates phone recognition output using panphon feature-based metrics.
+    Evaluates CMU39-projected phone recognition output.
 
       * PER (phone error rate, %)
       * FER (feature error rate, %)
@@ -470,7 +478,7 @@ class PhoneRecognitionEvaluator:
       * per-utterance metrics
 
     Assumes `test_data` is a dict:
-        { utt_id: {"prediction": str, "transcription": str, ...}, ... }
+        { utt_id: {"prediction": str, "transcription": str, "canonical": str}, ... }
     """
 
     def __init__(
@@ -537,16 +545,16 @@ class PhoneRecognitionEvaluator:
         Returns:
             (metrics_dict, pfer, fed, per_errors, n_phones)
         """
-        hyp = self._prepare(hyp)
-        ref = self._prepare(ref)
+        hyp_segs = self._mdd_segments(hyp)
+        ref_segs = self._mdd_segments(ref)
+        hyp_text = "".join(hyp_segs)
+        ref_text = "".join(ref_segs)
 
         # Phone feature distances
-        pfer = self.dst.hamming_feature_edit_distance(hyp, ref)
-        fed = self.dst.feature_edit_distance(hyp, ref)
+        pfer = self.dst.hamming_feature_edit_distance(hyp_text, ref_text)
+        fed = self.dst.feature_edit_distance(hyp_text, ref_text)
 
-        # PER via min_edit_distance over IPA segments
-        hyp_segs = self.dst.fm.ipa_segs(hyp)
-        ref_segs = self.dst.fm.ipa_segs(ref)
+        # PER via min_edit_distance over projected CMU39 tokens.
         n_phones = len(ref_segs)
 
         per_errors = self.dst.min_edit_distance(
@@ -652,10 +660,9 @@ class PhoneRecognitionEvaluator:
 
         def get_inventory(key: str) -> list[str]:
             c = Counter()
-            ft = panphon.FeatureTable()
             for _, sample in test_data.items():
                 datum = sample.get(key, "")
-                c.update(ft.ipa_segs(datum))
+                c.update(token for token in datum.split() if token)
             # This will return phones in order of descending frequency.  For
             # the reference set, this is not taken into account, but for the
             # predictions, it used to calculate an upper bound onf the
@@ -673,7 +680,7 @@ class PhoneRecognitionEvaluator:
         Evaluate a full dataset.
 
         Args:
-            test_data: mapping from utt_id -> {"prediction": ..., "transcription": ...}
+            test_data: mapping from utt_id -> {"prediction": ..., "transcription": ..., "canonical": ...}
 
         Returns:
             summary: PhoneRecognitionSummary (aggregate metrics)
@@ -711,13 +718,29 @@ class PhoneRecognitionEvaluator:
         cd_sum = de_sum = 0
         joint_tr_sum = joint_ta_sum = joint_fr_sum = joint_fa_sum = 0
         joint_cd_sum = joint_de_sum = 0
-        missing_canonical = 0
+        projected_data: Dict[str, Dict[str, Any]] = {}
 
         for utt_id, sample in tqdm(
             test_data.items(), total=len(test_data), desc="Evaluating", leave=False
         ):
-            hyp = sample.get("prediction", "")
-            ref = sample.get("transcription", "")
+            hyp_raw = sample.get("prediction", "")
+            ref_raw = sample.get("transcription", "")
+            canonical_raw = sample.get("canonical")
+            if canonical_raw is None or not str(canonical_raw).strip():
+                raise ValueError(
+                    "CMU39-projected evaluation requires canonical IPA for "
+                    f"every utterance; missing canonical for {utt_id}."
+                )
+
+            canonical, ref, hyp = project_ipa_triplet_to_cmu39(
+                str(canonical_raw),
+                str(ref_raw),
+                str(hyp_raw),
+            )
+            projected_data[utt_id] = {
+                "prediction": hyp,
+                "transcription": ref,
+            }
 
             out = self._compute_utterance_metrics(hyp, ref)
 
@@ -731,32 +754,22 @@ class PhoneRecognitionEvaluator:
             del_err_sum += out["del_errors"]
             n_utts += 1
 
-            canonical = sample.get("canonical", None)
-            if canonical:
-                has_mdd = True
-                mdd = self._compute_mdd(canonical, ref, hyp)
-                tr_sum += mdd["TR"]
-                ta_sum += mdd["TA"]
-                fr_sum += mdd["FR"]
-                fa_sum += mdd["FA"]
-                cd_sum += mdd["CD"]
-                de_sum += mdd["DE"]
-                if self.compute_joint_mdd:
-                    joint_tr_sum += mdd["Joint_TR"]
-                    joint_ta_sum += mdd["Joint_TA"]
-                    joint_fr_sum += mdd["Joint_FR"]
-                    joint_fa_sum += mdd["Joint_FA"]
-                    joint_cd_sum += mdd["Joint_CD"]
-                    joint_de_sum += mdd["Joint_DE"]
-                instance_metrics[utt_id]["mdd"] = mdd
-            elif "canonical" in sample:
-                # canonical key present but empty → utt missing from text.canonical
-                missing_canonical += 1
-
-        if missing_canonical:
-            log.warning(
-                f"Skipped MDD scoring for {missing_canonical} utts missing from canonical file."
-            )
+            has_mdd = True
+            mdd = self._compute_mdd(canonical, ref, hyp)
+            tr_sum += mdd["TR"]
+            ta_sum += mdd["TA"]
+            fr_sum += mdd["FR"]
+            fa_sum += mdd["FA"]
+            cd_sum += mdd["CD"]
+            de_sum += mdd["DE"]
+            if self.compute_joint_mdd:
+                joint_tr_sum += mdd["Joint_TR"]
+                joint_ta_sum += mdd["Joint_TA"]
+                joint_fr_sum += mdd["Joint_FR"]
+                joint_fa_sum += mdd["Joint_FA"]
+                joint_cd_sum += mdd["Joint_CD"]
+                joint_de_sum += mdd["Joint_DE"]
+            instance_metrics[utt_id]["mdd"] = mdd
 
         summary = PhoneRecognitionSummary(
             PFER=pfer_sum / n_utts if n_utts > 0 else 0.0,
@@ -768,7 +781,7 @@ class PhoneRecognitionEvaluator:
             DEL=(del_err_sum / phones_sum * 100) if phones_sum > 0 else 0.0,
             N=n_utts,
             phones=phones_sum,
-            inventory=self._get_phone_inventory_metrics(test_data),
+            inventory=self._get_phone_inventory_metrics(projected_data),
         )
 
         if has_mdd:
@@ -1119,8 +1132,8 @@ def _load_predictions(
     If language_field is None, 'language' is set to the string '"combined"'.
 
     `canonical_data` (utt_id -> ipa) takes precedence over `canonical_field`
-    (a passthrough field name). When neither is provided, the "canonical" key
-    is omitted so MDD scoring is skipped.
+    (a passthrough field name). The evaluator requires canonical IPA for CMU39
+    projection, so CLI callers must provide one of those sources.
     """
     with open(pred_file, "r") as f:
         data = json.load(f)
@@ -1186,6 +1199,7 @@ def write_mdd_per_utt_csv(
         "eval_name",
         "language",
         "utt_id",
+        "projection_profile",
         "prompted",
         "uttered",
         "predicted",
@@ -1223,6 +1237,7 @@ def write_mdd_joint_per_utt_csv(
         "eval_name",
         "language",
         "utt_id",
+        "projection_profile",
         "joint_prompted",
         "joint_uttered",
         "joint_predicted",
@@ -1289,8 +1304,8 @@ def add_args(parser: argparse.ArgumentParser) -> None:
         "--canonical_file",
         type=str,
         default=None,
-        help="Path to a Kaldi-style text.canonical (utt_id <space-separated-IPA>). "
-        "When provided, MDD metrics (TR/TA/FR/FA + derived) are computed.",
+        help="Required unless --canonical_field is used. Path to a Kaldi-style "
+        "text.canonical (utt_id <space-separated-IPA>) used for CMU39 projection.",
     )
     parser.add_argument(
         "--canonical_field",
@@ -1327,6 +1342,10 @@ if __name__ == "__main__":
 
     if args.canonical_file and args.canonical_field:
         parser.error("--canonical_file and --canonical_field are mutually exclusive")
+    if not args.canonical_file and not args.canonical_field:
+        parser.error(
+            "CMU39-projected evaluation requires --canonical_file or --canonical_field"
+        )
 
     canonical_data: Optional[Dict[str, str]] = None
     if args.canonical_file:
@@ -1368,6 +1387,7 @@ if __name__ == "__main__":
                         "eval_name": args.evaluation_name,
                         "language": lang,
                         "utt_id": utt_id,
+                        "projection_profile": CMU39_PROJECTION_PROFILE,
                         "prompted": mdd["prompted"],
                         "uttered": mdd["uttered"],
                         "predicted": mdd["predicted"],
@@ -1387,6 +1407,7 @@ if __name__ == "__main__":
                             "eval_name": args.evaluation_name,
                             "language": lang,
                             "utt_id": utt_id,
+                            "projection_profile": CMU39_PROJECTION_PROFILE,
                             "joint_prompted": mdd["joint_prompted"],
                             "joint_uttered": mdd["joint_uttered"],
                             "joint_predicted": mdd["joint_predicted"],

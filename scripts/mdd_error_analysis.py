@@ -21,6 +21,10 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from src.core.cmu39_projection import (
+    CMU39_PROJECTION_PROFILE,
+    project_ipa_triplet_to_cmu39,
+)
 from src.metrics.phone_recognition import (
     MDD_BLANK,
     PhoneRecognitionEvaluator,
@@ -105,9 +109,12 @@ def expand_slots(
     uttered: str,
     predicted: str,
 ) -> list[dict[str, Any]]:
-    prompted_segs = evaluator._mdd_segments(canonical)
-    uttered_segs = evaluator._mdd_segments(uttered)
-    predicted_segs = evaluator._mdd_segments(predicted)
+    projected_canonical, projected_uttered, projected_predicted = (
+        project_ipa_triplet_to_cmu39(canonical, uttered, predicted)
+    )
+    prompted_segs = evaluator._mdd_segments(projected_canonical)
+    uttered_segs = evaluator._mdd_segments(projected_uttered)
+    predicted_segs = evaluator._mdd_segments(projected_predicted)
 
     u_phones, u_gaps = _align_to_prompted_slots(prompted_segs, uttered_segs)
     h_phones, h_gaps = _align_to_prompted_slots(prompted_segs, predicted_segs)
@@ -124,6 +131,7 @@ def expand_slots(
                 {
                     "utt_id": utt_id,
                     "language": lang,
+                    "projection_profile": CMU39_PROJECTION_PROFILE,
                     "row_order": row_order,
                     "slot_type": "gap",
                     "slot_index": slot_idx,
@@ -152,6 +160,7 @@ def expand_slots(
                 {
                     "utt_id": utt_id,
                     "language": lang,
+                    "projection_profile": CMU39_PROJECTION_PROFILE,
                     "row_order": row_order,
                     "slot_type": "phone",
                     "slot_index": slot_idx,
@@ -232,6 +241,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     headers = [
         "utt_id",
         "language",
+        "projection_profile",
         "row_order",
         "slot_type",
         "slot_index",
@@ -295,6 +305,7 @@ def summarize(rows: list[dict[str, Any]], path: Path) -> None:
     lines: list[str] = []
     lines.append("MDD Error Analysis")
     lines.append("==================")
+    lines.append(f"Projection profile: {CMU39_PROJECTION_PROFILE}")
     lines.append("")
     lines.append("Aggregate counts")
     lines.append(f"  TA={bucket_counts['TA']} TR={tr} FR={bucket_counts['FR']} FA={bucket_counts['FA']}")

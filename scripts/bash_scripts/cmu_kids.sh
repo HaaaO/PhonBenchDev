@@ -174,7 +174,8 @@ for mv in "${MODELS[@]}"; do
         --gt_field target \
         --pred_field processed_transcript \
         --key_field utt_id \
-        --language_field lang_sym
+        --language_field lang_sym \
+        --canonical_file "$DATA_DIR/$DATASET/text.canonical"
     echo "    results: $run_dir/inventory_results.csv"
 done
 

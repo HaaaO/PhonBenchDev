@@ -48,8 +48,8 @@ def test_evaluate_perfect_match():
     evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
     
     test_data = {
-        "utt1": {"prediction": "ɑb", "transcription": "ɑb"},
-        "utt2": {"prediction": "kæt", "transcription": "kæt"},
+        "utt1": {"prediction": "ɑ b", "transcription": "ɑ b", "canonical": "ɑ b"},
+        "utt2": {"prediction": "k æ t", "transcription": "k æ t", "canonical": "k æ t"},
     }
     
     summary, instance_metrics = evaluator.evaluate(test_data)
@@ -65,8 +65,8 @@ def test_evaluate_with_errors():
     evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
     
     test_data = {
-        "utt1": {"prediction": "ɑb", "transcription": "ɑp"},  # substitution
-        "utt2": {"prediction": "kæ", "transcription": "kæt"},  # deletion
+        "utt1": {"prediction": "ɑ b", "transcription": "ɑ p", "canonical": "ɑ p"},
+        "utt2": {"prediction": "k æ", "transcription": "k æ t", "canonical": "k æ t"},
     }
     
     summary, instance_metrics = evaluator.evaluate(test_data)
@@ -88,6 +88,13 @@ def test_evaluate_empty_data():
     assert summary.N == 0
     assert summary.phones == 0
     assert len(instance_metrics) == 0
+
+
+def test_evaluate_requires_canonical_for_projection():
+    evaluator = PhoneRecognitionEvaluator()
+
+    with pytest.raises(ValueError, match="requires canonical IPA"):
+        evaluator.evaluate({"utt1": {"prediction": "t", "transcription": "t"}})
 
 
 def test_load_predictions_treats_malformed_or_error_preds_as_empty(tmp_path, monkeypatch):
@@ -136,7 +143,7 @@ def test_evaluate_single_utterance():
     evaluator = PhoneRecognitionEvaluator()
     
     test_data = {
-        "utt1": {"prediction": "ɑ", "transcription": "ɑ"},
+        "utt1": {"prediction": "ɑ", "transcription": "ɑ", "canonical": "ɑ"},
     }
     
     summary, instance_metrics = evaluator.evaluate(test_data)
@@ -151,7 +158,7 @@ def test_pretty_print(capsys):
     evaluator = PhoneRecognitionEvaluator()
     
     test_data = {
-        "utt1": {"prediction": "ɑb", "transcription": "ɑb"},
+        "utt1": {"prediction": "ɑ b", "transcription": "ɑ b", "canonical": "ɑ b"},
     }
     
     summary, _ = evaluator.evaluate(test_data)
@@ -167,11 +174,11 @@ def test_evaluate_with_mdd_cd_de():
     evaluator = PhoneRecognitionEvaluator(normalize_ipa=True)
 
     test_data = {
-        "ta": {"prediction": "ab", "transcription": "ab", "canonical": "ab"},  # 2 TA
-        "fr": {"prediction": "ac", "transcription": "ab", "canonical": "ab"},  # 1 TA + 1 FR
-        "fa": {"prediction": "ab", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 FA
-        "cd": {"prediction": "ac", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 CD
-        "de": {"prediction": "ad", "transcription": "ac", "canonical": "ab"},  # 1 TA + 1 DE
+        "ta": {"prediction": "p t", "transcription": "p t", "canonical": "p t"},
+        "fr": {"prediction": "p k", "transcription": "p t", "canonical": "p t"},
+        "fa": {"prediction": "p t", "transcription": "p k", "canonical": "p t"},
+        "cd": {"prediction": "p k", "transcription": "p k", "canonical": "p t"},
+        "de": {"prediction": "p d", "transcription": "p k", "canonical": "p t"},
     }
 
     summary, _ = evaluator.evaluate(test_data)
@@ -391,21 +398,21 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
     test_data = {
         # TA=3, CD=1, FR=2
         "de_and_fr": {
-            "canonical": "abcd",
-            "transcription": "acd",
-            "prediction": "axcdy",
+            "canonical": "p t k s",
+            "transcription": "p k s",
+            "prediction": "p m k s n",
         },
         # TA=2, CD=1
         "cd_insertion": {
-            "canonical": "ab",
-            "transcription": "axb",
-            "prediction": "axb",
+            "canonical": "p t",
+            "transcription": "p m t",
+            "prediction": "p m t",
         },
         # TA=3, FA=1, FR=1
         "fa_and_fr": {
-            "canonical": "abc",
-            "transcription": "axbc",
-            "prediction": "abyc",
+            "canonical": "p t k",
+            "transcription": "p m t k",
+            "prediction": "p t n k",
         },
     }
 
@@ -479,7 +486,11 @@ def test_mdd_tokenization_keeps_affricate_and_diphthong_tokens():
 def test_evaluate_with_normalization():
     """Test evaluation with and without normalization."""
     test_data = {
-        "utt1": {"prediction": "ɑ b", "transcription": "ɑb"},  # space difference
+        "utt1": {
+            "prediction": "ɑ b",
+            "transcription": "ɑb",
+            "canonical": "ɑ b",
+        },
     }
     
     evaluator_norm = PhoneRecognitionEvaluator(normalize_ipa=True)
