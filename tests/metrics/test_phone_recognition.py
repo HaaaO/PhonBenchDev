@@ -192,6 +192,7 @@ def test_evaluate_with_mdd_cd_de():
     assert summary.TR == 2  # CD + DE
     assert summary.Diagnostic_Accuracy == pytest.approx(0.5)
     assert summary.Diagnostic_Error_Rate == pytest.approx(0.5)
+    assert summary.Overall_Diagnostic_Error_Rate == pytest.approx(3 / 10)
 
 
 @pytest.mark.parametrize(
@@ -434,6 +435,7 @@ def test_evaluate_mdd_summary_formulas_with_mixed_sequence_lengths():
     assert summary.MDD_F1 == pytest.approx(0.5)
     assert summary.Diagnostic_Accuracy == pytest.approx(1.0)
     assert summary.Diagnostic_Error_Rate == pytest.approx(0.0)
+    assert summary.Overall_Diagnostic_Error_Rate == pytest.approx(4 / 14)
     assert summary.True_Diagnostic_Accuracy == pytest.approx(2 / 3)
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_U"] == "C E C C C"
     assert instance_metrics["fa_and_fr"]["mdd"]["corr_P"] == "C C C E C"

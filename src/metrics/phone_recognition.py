@@ -449,6 +449,7 @@ class PhoneRecognitionSummary:
     MDD_F1: Optional[float] = None
     Diagnostic_Accuracy: Optional[float] = None
     Diagnostic_Error_Rate: Optional[float] = None
+    Overall_Diagnostic_Error_Rate: Optional[float] = None
     True_Diagnostic_Accuracy: Optional[float] = None
     Joint_TR: int = 0
     Joint_TA: int = 0
@@ -464,6 +465,7 @@ class PhoneRecognitionSummary:
     Joint_MDD_F1: Optional[float] = None
     Joint_Diagnostic_Accuracy: Optional[float] = None
     Joint_Diagnostic_Error_Rate: Optional[float] = None
+    Joint_Overall_Diagnostic_Error_Rate: Optional[float] = None
     Joint_True_Diagnostic_Accuracy: Optional[float] = None
 
 
@@ -795,6 +797,9 @@ class PhoneRecognitionEvaluator:
             total = tr_sum + ta_sum + fr_sum + fa_sum
             if total > 0:
                 summary.Detection_Accuracy = (tr_sum + ta_sum) / total
+                summary.Overall_Diagnostic_Error_Rate = (
+                    fr_sum + fa_sum + de_sum
+                ) / total
             if (fr_sum + ta_sum) > 0:
                 summary.FRR = fr_sum / (fr_sum + ta_sum)
             if (fa_sum + tr_sum) > 0:
@@ -832,6 +837,9 @@ class PhoneRecognitionEvaluator:
                 if joint_total > 0:
                     summary.Joint_Detection_Accuracy = (
                         joint_tr_sum + joint_ta_sum) / joint_total
+                    summary.Joint_Overall_Diagnostic_Error_Rate = (
+                        joint_fr_sum + joint_fa_sum + joint_de_sum
+                    ) / joint_total
                 if (joint_fr_sum + joint_ta_sum) > 0:
                     summary.Joint_FRR = (
                         joint_fr_sum / (joint_fr_sum + joint_ta_sum))
@@ -898,6 +906,7 @@ class PhoneRecognitionEvaluator:
             t.add_row("MDD_F1", _f(summary.MDD_F1))
             t.add_row("Diagnostic_Accuracy", _f(summary.Diagnostic_Accuracy))
             t.add_row("Diagnostic_Error_Rate", _f(summary.Diagnostic_Error_Rate))
+            t.add_row("Overall_Diagnostic_Error_Rate", _f(summary.Overall_Diagnostic_Error_Rate))
             t.add_row("True_Diagnostic_Accuracy", _f(summary.True_Diagnostic_Accuracy))
             if summary.has_joint_mdd:
                 t.add_row("Joint TR / TA / FR / FA", f"{summary.Joint_TR} / {summary.Joint_TA} / {summary.Joint_FR} / {summary.Joint_FA}")
@@ -910,6 +919,7 @@ class PhoneRecognitionEvaluator:
                 t.add_row("Joint_MDD_F1", _f(summary.Joint_MDD_F1))
                 t.add_row("Joint_Diagnostic_Accuracy", _f(summary.Joint_Diagnostic_Accuracy))
                 t.add_row("Joint_Diagnostic_Error_Rate", _f(summary.Joint_Diagnostic_Error_Rate))
+                t.add_row("Joint_Overall_Diagnostic_Error_Rate", _f(summary.Joint_Overall_Diagnostic_Error_Rate))
                 t.add_row("Joint_True_Diagnostic_Accuracy", _f(summary.Joint_True_Diagnostic_Accuracy))
         Console().print(t)
 
@@ -981,6 +991,7 @@ class PhoneRecognitionEvaluator:
             "MDD_F1",
             "Diagnostic_Accuracy",
             "Diagnostic_Error_Rate",
+            "Overall_Diagnostic_Error_Rate",
             "True_Diagnostic_Accuracy",
         ]
         joint_headers = [
@@ -998,6 +1009,7 @@ class PhoneRecognitionEvaluator:
             "Joint_MDD_F1",
             "Joint_Diagnostic_Accuracy",
             "Joint_Diagnostic_Error_Rate",
+            "Joint_Overall_Diagnostic_Error_Rate",
             "Joint_True_Diagnostic_Accuracy",
         ]
         headers = [
@@ -1027,6 +1039,7 @@ class PhoneRecognitionEvaluator:
                 _fmt(summary.MDD_F1),
                 _fmt(summary.Diagnostic_Accuracy),
                 _fmt(summary.Diagnostic_Error_Rate),
+                _fmt(summary.Overall_Diagnostic_Error_Rate),
                 _fmt(summary.True_Diagnostic_Accuracy),
             ]
             if summary.has_joint_mdd:
@@ -1045,6 +1058,7 @@ class PhoneRecognitionEvaluator:
                     _fmt(summary.Joint_MDD_F1),
                     _fmt(summary.Joint_Diagnostic_Accuracy),
                     _fmt(summary.Joint_Diagnostic_Error_Rate),
+                    _fmt(summary.Joint_Overall_Diagnostic_Error_Rate),
                     _fmt(summary.Joint_True_Diagnostic_Accuracy),
                 ])
         else:

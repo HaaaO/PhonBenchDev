@@ -12,6 +12,20 @@ prompt_config:
     ### Task
     Listen to the provided audio clip and transcribe the speech into standard International Phonetic Alphabet (IPA) symbols.
 
+    ### Allowed IPA Phone Inventory
+    Use only the following CMU39-style General American IPA phone symbols in the transcription.
+
+    Consonants:
+    p b t d k ɡ t͡ʃ d͡ʒ f v θ ð s z ʃ ʒ h m n ŋ l ɹ w j
+
+    Vowels:
+    i ɪ eɪ ɛ æ ɑ ɔ oʊ ʊ u ʌ ə˞ aɪ aʊ ɔɪ
+
+    Treat each listed item as one phone symbol. In particular, keep these multi-character phones together as single units:
+    t͡ʃ d͡ʒ eɪ oʊ aɪ aʊ ɔɪ ə˞
+
+    Do not output IPA symbols outside this inventory. If the audio contains a sound that is phonetically close to something outside this inventory, choose the closest phone from the allowed inventory. Do not use stress marks, length marks, syllable markers, diacritics, tone marks, slashes, brackets, punctuation, or alternative transcriptions.
+
     ### Canonical Context for Phonetic Error Detection
     The intended canonical IPA pronunciation is:
     {canonical_ipa}
@@ -19,17 +33,17 @@ prompt_config:
     The speaker may have phonetic errors relative to this canonical pronunciation. Listen carefully and transcribe the speech the speaker actually produced so those errors can be detected. Do not simply copy the canonical IPA.
 
     ### Guidelines for Accuracy
-    1.  **Analyze Context:** Implicitly identify the speaker's accent/dialect to ensure vowel qualities are accurate.
-    2.  **Resolve Ambiguity:** If a sound is unclear, use your linguistic expertise to determine the single most probable phoneme. Do not provide alternatives.
-    3.  **Strict IPA:** Use standard IPA notation only.
+    1.  **Resolve Ambiguity:** If a sound is unclear, use your linguistic expertise to determine the single most probable phoneme. Do not provide alternatives.
+    2.  **Strict IPA:** Use standard IPA notation only.
 
     ### Output Format & Schema Adherence
     -   **Strict Adherence:** You must generate the output following the defined schema structure exactly.
     -   **Pure Data:** Return raw data only. Do NOT use Markdown code blocks (e.g., ```json), and do not include any conversational filler.
     -   **Field `transcription`:**
-        -   Must contain **EXACTLY ONE** string sequence of IPA symbols.
-        -   No slashes `/` or brackets `[]`.
-        -   Example: "hələʊ" (Correct) / "/hələʊ/" (Incorrect)
+        -   Must contain **EXACTLY ONE** string sequence using only the allowed CMU39-style IPA phones listed above.
+        -   Separate phones with single spaces when possible.
+        -   No slashes `/`, brackets `[]`, stress marks, length marks, diacritics, punctuation, or alternative transcriptions.
+        -   Example: "h ə l oʊ" (Correct) / "həˈloʊ" or "/həloʊ/" (Incorrect)
 
     Analyze the audio and produce the structured output now.
   user_prompt: "Please transcribe the attached audio. I need a clear mapping of the speech to International Phonetic Alphabet (IPA) symbols."
