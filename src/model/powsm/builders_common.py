@@ -200,9 +200,8 @@ POWSM_REL_BPE = "data/token_list/bpe_unigram40000/bpe.model"
 
 # POWSM-CTC specific paths (to be updated when HF repo is available)
 # Default: ESPnet OWSM-CTC v4 1B (`espnet/owsm_ctc_v4_1B`) layout
-POWSM_CTC_REL_CONFIG = "exp/temp/config.yaml"
-POWSM_CTC_REL_CKPT = "exp/temp/valid.total_count.ave.till70epoch.pth"
-POWSM_CTC_REL_STATS = "exp/s2t_stats_raw_bpe40000/train/feats_stats.npz"
-POWSM_CTC_REL_BPE = "data/token_list/bpe_unigram40000/bpe.model"
-
+POWSM_CTC_REL_CONFIG = "exp/s2t_train_owsmctc_ebf27_conv2d8_size1024_mel128_bs320_raw_bpe50000/config.yaml"
+POWSM_CTC_REL_CKPT = "exp/s2t_train_owsmctc_ebf27_conv2d8_size1024_mel128_bs320_raw_bpe50000/valid.total_count.ave_5best.till70epoch.pth"
+POWSM_CTC_REL_STATS = "exp/s2t_stats_raw_bpe50000/train/feats_stats.npz"
+POWSM_CTC_REL_BPE = "data/token_list/bpe_unigram50000/bpe.model"
 

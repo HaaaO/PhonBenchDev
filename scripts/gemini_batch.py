@@ -55,6 +55,23 @@ DEFAULT_SUBMIT_OVERRIDES = (
     "data.portable_wavscp=True",
 )
 DEFAULT_SUBMIT_TASK_PREFIX = "inf_authentic_kids_kaldi_gemini31pro_batch"
+SUBMIT_PRESETS = {
+    "authentic_kids_kaldi": {
+        "task_prefix": DEFAULT_SUBMIT_TASK_PREFIX,
+        "overrides": DEFAULT_SUBMIT_OVERRIDES,
+    },
+    "cmu_kids_final_kaldi": {
+        "task_prefix": "inf_cmu_kids_final_kaldi_gemini31pro_batch",
+        "overrides": (
+            "experiment=inference/transcribe_gemini31pro_batch",
+            "data=powsmeval",
+            "data.dataset_name=cmu_kids_final_kaldi",
+            "data.data_dir=/n/iqss_sponsored/Lab/zshi/prism-evalsets/cmu_kids_final_kaldi",
+            "data.portable_wavscp=True",
+        ),
+    },
+}
+DEFAULT_SUBMIT_PRESET = "authentic_kids_kaldi"
 
 
 def read_json(path: Path) -> dict[str, Any]:
@@ -343,16 +360,27 @@ def override_sets_key(overrides: list[str], key: str) -> bool:
     return any(override.startswith(prefixes) for override in overrides)
 
 
-def submit_overrides(user_overrides: list[str]) -> list[str]:
+def submit_overrides(
+    user_overrides: list[str],
+    *,
+    preset_name: str = DEFAULT_SUBMIT_PRESET,
+) -> list[str]:
+    if preset_name not in SUBMIT_PRESETS:
+        valid = ", ".join(sorted(SUBMIT_PRESETS))
+        raise ValueError(f"Unknown submit preset {preset_name!r}; valid presets: {valid}")
+
+    preset = SUBMIT_PRESETS[preset_name]
     overrides: list[str] = []
-    for default_override in DEFAULT_SUBMIT_OVERRIDES:
+    for default_override in preset["overrides"]:
         key = default_override.split("=", 1)[0]
         if not override_sets_key(user_overrides, key):
             overrides.append(default_override)
 
+    run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
     if not override_sets_key(user_overrides, "task_name"):
-        run_tag = datetime.now().strftime("%Y%m%d_%H%M%S")
-        overrides.append(f"task_name={DEFAULT_SUBMIT_TASK_PREFIX}_{run_tag}")
+        overrides.append(f"task_name={preset['task_prefix']}_{run_tag}")
+    if not override_sets_key(user_overrides, "run_folder"):
+        overrides.append(f"run_folder='{run_tag}'")
 
     overrides.extend(user_overrides)
     return overrides
@@ -945,7 +973,10 @@ def run_evaluation(
 
 
 def submit(args: argparse.Namespace) -> None:
-    overrides = submit_overrides(list(args.overrides or []))
+    overrides = submit_overrides(
+        list(args.overrides or []),
+        preset_name=args.preset,
+    )
     cfg = compose_hydra_config(overrides)
     runner_cfg = cfg.inference.inference_runner
     client_config = resolve_config_values(
@@ -969,6 +1000,7 @@ def submit(args: argparse.Namespace) -> None:
             "created_at": datetime.now().isoformat(),
             "dry_run": args.dry_run,
             "model": model_name,
+            "preset": args.preset,
             "task_name": task_name,
             "overrides": overrides,
             "config": to_jsonable(cfg),
@@ -1123,6 +1155,16 @@ def add_collect_args(parser: argparse.ArgumentParser) -> None:
 
 def add_submit_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
+        "--preset",
+        choices=sorted(SUBMIT_PRESETS),
+        default=DEFAULT_SUBMIT_PRESET,
+        help=(
+            "Default submit preset. Use cmu_kids_final_kaldi to set the "
+            "finalized CMU Kids dataset name, dataset root, task prefix, and "
+            "timestamped run folder. Explicit Hydra overrides still win."
+        ),
+    )
+    parser.add_argument(
         "--run-dir",
         help="Output run dir. Defaults to exp/runs/<task_name>/<run_folder> from the composed Hydra config.",
     )
@@ -1150,8 +1192,8 @@ def add_submit_args(parser: argparse.ArgumentParser) -> None:
         "overrides",
         nargs=argparse.REMAINDER,
         help=(
-            "Optional Hydra overrides. Defaults to the authentic_kids_kaldi "
-            "gemini-3.1-pro-preview batch experiment."
+            "Optional Hydra overrides. Defaults come from --preset; the default "
+            "preset is authentic_kids_kaldi."
         ),
     )
 

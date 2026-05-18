@@ -56,35 +56,236 @@ CMU39_IPA: Tuple[str, ...] = CMU39_CONSONANTS + CMU39_VOWELS
 CMU39_IPA_SET = set(CMU39_IPA)
 CMU39_PROJECTION_PROFILE = "ga39_canonical_context_v1"
 
-_FLAP_TOKENS = {"ɾ", "ɾ̃"}
+_FLAP_TOKENS = {"ɾ", "ɾ̃", "ɽ", "ɽ̊"}
 
-_ALIASES: Dict[str, str] = {
-    # CMU stressless vowel collapses.
-    "ə": "ʌ",
-    "ɨ": "ɪ",
-    "ɚ": "ə˞",
-    "ɝ": "ə˞",
-    "ɜ˞": "ə˞",
-    "e": "eɪ",
-    "o": "oʊ",
-    # Common reduced or allophonic consonant forms.
-    "l̩": "l",
-    "m̩": "m",
-    "n̩": "n",
-    "ŋ̩": "ŋ",
-    "ʉ": "u",
-    "tʃ": "t͡ʃ",
-    "dʒ": "d͡ʒ",
-    "t͜ʃ": "t͡ʃ",
-    "d͜ʒ": "d͡ʒ",
+_DROP_TOKENS = {
+    "",
+    " ",
+    "#",
+    "'",
+    "0",
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+    "??",
+    "<blk>",
+    "<blank>",
+    "<bos>",
+    "<eos>",
+    "<pad>",
+    "<s>",
+    "</s>",
+    "<sos/eos>",
+    "<unk>",
+    "[PAD]",
+    "[UNK]",
+    "|",
+    "▁",
 }
 
-_DIRECT_MAP: Dict[str, str] = {phone: phone for phone in CMU39_IPA}
+_ALIASES: Dict[str, Tuple[str, ...]] = {
+    # CMU stressless vowel collapses.
+    "ə": ("ʌ",),
+    "ɨ": ("ɪ",),
+    "ɪ̈": ("ɪ",),
+    "ᵻ": ("ɪ",),
+    "ɚ": ("ə˞",),
+    "ɝ": ("ə˞",),
+    "ɜ˞": ("ə˞",),
+    "e": ("eɪ",),
+    "o": ("oʊ",),
+    "a": ("ɑ",),
+    "aː": ("ɑ",),
+    "ɑː": ("ɑ",),
+    "ɐ": ("ʌ",),
+    "ɘ": ("ʌ",),
+    "ɜ": ("ʌ",),
+    "ɞ": ("ʌ",),
+    "ɤ": ("ʌ",),
+    "ɒ": ("ɑ",),
+    "ɵ": ("ʊ",),
+    "ø": ("ʊ",),
+    "œ": ("ɛ",),
+    "y": ("u",),
+    "ʉ": ("u",),
+    "ɯ": ("u",),
+    "ɶ": ("æ",),
+    "ʏ": ("ʊ",),
+    "ai": ("aɪ",),
+    "au": ("aʊ",),
+    "ei": ("eɪ",),
+    "oi": ("ɔɪ",),
+    "ou": ("oʊ",),
+    "ɔi": ("ɔɪ",),
+    # Common reduced or allophonic consonant forms.
+    "l̩": ("l",),
+    "m̩": ("m",),
+    "n̩": ("n",),
+    "ŋ̩": ("ŋ",),
+    "ɫ": ("l",),
+    "ɬ": ("l",),
+    "ɮ": ("l",),
+    "ɭ": ("l",),
+    "ʎ": ("l",),
+    "ʟ": ("l",),
+    "ɺ": ("l",),
+    "ꞎ": ("l",),
+    "ɱ": ("m",),
+    "ɲ": ("n",),
+    "ɳ": ("n",),
+    "ɴ": ("n",),
+    "ɻ": ("ɹ",),
+    "ʁ": ("ɹ",),
+    "ʀ": ("ɹ",),
+    "ɰ": ("ɹ",),
+    "ʍ": ("w",),
+    "ɥ": ("w",),
+    "β": ("v",),
+    "ʋ": ("v",),
+    "ⱱ": ("v",),
+    "ɸ": ("f",),
+    "ç": ("ʃ",),
+    "ɕ": ("ʃ",),
+    "ʂ": ("ʃ",),
+    "ʑ": ("ʒ",),
+    "ʐ": ("ʒ",),
+    "c": ("k",),
+    "q": ("k",),
+    "ɟ": ("ɡ",),
+    "ɢ": ("ɡ",),
+    "ɠ": ("ɡ",),
+    "ʛ": ("ɡ",),
+    "ʄ": ("d",),
+    "ɣ": ("h",),
+    "x": ("h",),
+    "χ": ("h",),
+    "ħ": ("h",),
+    "ɦ": ("h",),
+    "ɧ": ("h",),
+    "ʜ": ("h",),
+    "ʕ": ("h",),
+    "ʢ": ("h",),
+    "ʡ": ("h",),
+    "ʈ": ("t",),
+    "ɖ": ("d",),
+    "ɗ": ("d",),
+    "ᶑ": ("d",),
+    "ɓ": ("b",),
+    "ʙ": ("b",),
+    "ʝ": ("j",),
+    "ʔ": ("h",),
+    "ǀ": ("k",),
+    "ǁ": ("k",),
+    "ǂ": ("k",),
+    "ǃ": ("k",),
+    "ʘ": ("k",),
+    "N": ("ŋ",),
+    "S": ("ʃ",),
+    "X": ("h",),
+    "Z": ("ʒ",),
+    "ΐ": ("i",),
+    "ϊ": ("i",),
+    "ι": ("i",),
+    "ஃ": ("h",),
+    "tʃ": ("t͡ʃ",),
+    "dʒ": ("d͡ʒ",),
+    "t͜ʃ": ("t͡ʃ",),
+    "d͜ʒ": ("d͡ʒ",),
+    "tɕ": ("t͡ʃ",),
+    "t͡ɕ": ("t͡ʃ",),
+    "ʈʂ": ("t͡ʃ",),
+    "ʈ͡ʂ": ("t͡ʃ",),
+    "dʑ": ("d͡ʒ",),
+    "d͡ʑ": ("d͡ʒ",),
+    "ɖʐ": ("d͡ʒ",),
+    "ɖ͡ʐ": ("d͡ʒ",),
+    "tS": ("t͡ʃ",),
+    "dZ": ("d͡ʒ",),
+    "ts": ("t", "s"),
+    "t͡s": ("t", "s"),
+    "dz": ("d", "z"),
+    "d͡z": ("d", "z"),
+    "pf": ("p", "f"),
+    "p͡f": ("p", "f"),
+    "kp": ("k", "p"),
+    "k͡p": ("k", "p"),
+    "ɡb": ("ɡ", "b"),
+    "ɡ͡b": ("ɡ", "b"),
+}
+
+_DIRECT_MAP: Dict[str, Tuple[str, ...]] = {
+    phone: (phone,) for phone in CMU39_IPA
+}
 _DIRECT_MAP.update(_ALIASES)
+
+_IGNORED_DIACRITICS = {
+    "ʰ",
+    "ʲ",
+    "ʷ",
+    "ˠ",
+    "ˡ",
+    "ˣ",
+    "ʼ",
+    "ˀ",
+    "ː",
+    ":",
+    "ˑ",
+    "̚",
+    "̞",
+    "̟",
+    "̠",
+    "̥",
+    "̊",
+    "̬",
+    "̤",
+    "̰",
+    "̩",
+    "̯",
+    "̪",
+    "̧",
+    "̇",
+    "̼",
+    "̻",
+    "̺",
+    "̝",
+    "˔",
+    "̹",
+    "̜",
+    "̴",
+    "̈",
+    "̆",
+    "̃",
+    "̽",
+    "̍",
+    "ˤ",
+    "˞",
+    "ᵝ",
+    "ᵐ",
+    "ᵑ",
+    "ᶬ",
+    "ᶮ",
+    "ᶯ",
+    "ᶰ",
+    "ᶿ",
+    "ⁿ",
+    "͡",
+    "͜",
+}
 
 _SCAN_TOKENS = tuple(
     sorted(
-        set(_DIRECT_MAP) | _FLAP_TOKENS,
+        (
+            set(_DIRECT_MAP)
+            | _FLAP_TOKENS
+            | {token for token in _DROP_TOKENS if token}
+            | _IGNORED_DIACRITICS
+        ),
         key=len,
         reverse=True,
     )
@@ -93,6 +294,9 @@ _SCAN_TOKENS = tuple(
 
 def _clean_for_scan(text: str) -> str:
     normalized = normalize_ipa_text(text).normalized
+    for token in sorted(_DROP_TOKENS, key=len, reverse=True):
+        if token:
+            normalized = normalized.replace(token, "")
     return "".join(
         ch
         for ch in normalized
@@ -123,10 +327,12 @@ def segment_ipa_for_cmu39(text: str) -> List[str]:
     return out
 
 
-def _fallback_projection(token: str) -> Optional[str]:
+def _fallback_projection(token: str) -> Tuple[str, ...]:
+    if token in _DROP_TOKENS or token in _IGNORED_DIACRITICS:
+        return ()
     if token in _FLAP_TOKENS:
-        return "t"
-    return _DIRECT_MAP.get(token)
+        return ("t",)
+    return _DIRECT_MAP.get(token, ())
 
 
 def _align_context(
@@ -197,8 +403,8 @@ def _project_tokens(
     projected_items: List[Tuple[str, str]] = []
     for token in tokens:
         projected = _fallback_projection(token)
-        if projected is not None:
-            projected_items.append((token, projected))
+        for phone in projected:
+            projected_items.append((token, phone))
 
     tentative = [projected for _, projected in projected_items]
     raw_items = [raw for raw, _ in projected_items]

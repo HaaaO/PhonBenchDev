@@ -27,7 +27,7 @@ inference:
   inference_runner:
     _target_: src.model.powsm.powsm_ctc_inference.build_powsm_ctc_inference
     work_dir: ${paths.cache_dir}/powsm_ctc
-    hf_repo: null
+    hf_repo: espnet/owsm_ctc_v4_1B
     force_download: False
     config_file: null
     model_file: null

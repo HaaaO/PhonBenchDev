@@ -4,6 +4,8 @@ POWSM-CTC Inference (wrapping ESPnet).
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+import fcntl
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -38,6 +40,19 @@ def _write_text(path: Union[str, Path], text: str) -> None:
     tmp = p.parent / f".{p.name}.tmp.{os.getpid()}"
     tmp.write_text(text, encoding="utf-8")
     os.replace(str(tmp), str(p))
+
+
+@contextmanager
+def _download_lock(work_dir: Union[str, Path]):
+    """Serialize first-time HF snapshot population across inference workers."""
+    lock_path = Path(work_dir) / ".PRiSM" / "download.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(f, fcntl.LOCK_UN)
 
 
 def patch_espnet_config_paths(
@@ -279,15 +294,22 @@ def build_powsm_ctc_inference(
             POWSM_CTC_REL_STATS,
             POWSM_CTC_REL_BPE,
         ]
-        missing = [str(root / r) for r in required_rel if not (root / r).exists()]
-        # Avoid calling snapshot_download(local_files_only=True) from every worker once
-        # the snapshot is already present (it uses file locks and can stall).
+
+        def missing_required() -> List[str]:
+            return [str(root / r) for r in required_rel if not (root / r).exists()]
+
+        missing = missing_required()
+        # Avoid concurrent local_dir writes when distributed inference workers
+        # instantiate the model at the same time on a fresh cache.
         if force_download or missing:
-            download_hf_snapshot(
-                repo_id=hf_repo,
-                work_dir=work_dir,
-                force_download=True if missing else force_download,
-            )
+            with _download_lock(work_dir):
+                missing = missing_required()
+                if force_download or missing:
+                    download_hf_snapshot(
+                        repo_id=hf_repo,
+                        work_dir=work_dir,
+                        force_download=True if missing else force_download,
+                    )
             missing = [str(root / r) for r in required_rel if not (root / r).exists()]
         if missing:
             raise RuntimeError(

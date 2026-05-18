@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 #SBATCH -J l2arctic_all_eval
-#SBATCH -p gpu_test
+#SBATCH -p gpu
+# Qwen3-Omni-30B at bf16 needs ~60 GB VRAM; request an 80 GB-class GPU.
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=h100
 #SBATCH -c 8
-#SBATCH --mem=48G
-#SBATCH -t 4:00:00
+#SBATCH --mem=256G
+#SBATCH -t 12:00:00
 #SBATCH -o /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 #SBATCH -e /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 
-# Run all 7 PRiSM models on l2arctic_perceived, then score PER + inventory.
-# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/l2_arctic.sh
+# Run PRiSM phoneme models on l2arctic_perceived, then score PER + inventory.
+# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/l2_arctic.sh
 
 set -u
 mkdir -p /n/iqss_sponsored/Lab/zshi/slurm_logs
@@ -19,6 +21,8 @@ export HF_HOME="${HF_HOME:-/n/iqss_sponsored/Lab/zshi/.cache/huggingface}"
 cd /n/iqss_sponsored/Lab/zshi/PhonBenchDev
 # shellcheck disable=SC1091
 source .venv/bin/activate
+export QWEN25_VLLM_BIN=/n/iqss_sponsored/Lab/zshi/vllm-omni-env/.venv/bin/vllm
+export QWEN3_VLLM_BIN=/n/iqss_sponsored/Lab/zshi/vllm-omni-env-src/.venv/bin/vllm
 # shellcheck disable=SC1091
 source scripts/bash_scripts/vllm_helpers.sh
 
@@ -32,6 +36,7 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_powsm \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_powsm_${TAG}
@@ -40,6 +45,7 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_powsm_ctc \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_powsm_ctc_${TAG}
@@ -48,24 +54,27 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # python src/main.py \
 #     experiment=inference/transcribe_w2v2ph \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=facebook/wav2vec2-lv-60-espeak-cv-ft \
 #     task_name=inf_${DATASET}_lv60_${TAG}
 
 # # # 4. W2V2P-XLSR53
-python src/main.py \
-    experiment=inference/transcribe_w2v2ph \
-    data=powsmeval \
-    data.data_dir=$DATA_DIR \
-    data.portable_wavscp=True \
-    inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
-    task_name=inf_${DATASET}_xlsr53_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_w2v2ph \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
+#     task_name=inf_${DATASET}_xlsr53_${TAG}
 
 # # # 5. MultiIPA (ctag)
 # python src/main.py \
 #     experiment=inference/transcribe_w2v2ph \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=ctaguchi/wav2vec2-large-xlsr-japlmthufielta-ipa1000-ns \
@@ -75,6 +84,7 @@ python src/main.py \
 # python src/main.py \
 #     experiment=inference/transcribe_zipactc \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-500k \
@@ -84,6 +94,7 @@ python src/main.py \
 python src/main.py \
     experiment=inference/transcribe_zipactc \
     data=powsmeval \
+    data.dataset_name=${DATASET} \
     data.data_dir=$DATA_DIR \
     data.portable_wavscp=True \
     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
@@ -93,6 +104,7 @@ python src/main.py \
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gemini_${TAG}
@@ -102,15 +114,17 @@ python src/main.py \
 # python src/main.py \
 #     experiment=inference/transcribe_gemini \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
-#     inference.inference_runner.client_config.model_name=gemini-3.0-flash \
+#     inference.inference_runner.client_config.model_name=gemini-3-flash-preview \
 #     task_name=inf_${DATASET}_gemini3_${TAG}
 
 # 8c. GPT-audio-1.5
 # python src/main.py \
 #     experiment=inference/transcribe_gptaudio \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptaudio_${TAG}
@@ -119,9 +133,19 @@ python src/main.py \
 # python src/main.py \
 #     experiment=inference/transcribe_gptrealtime2 \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     task_name=inf_${DATASET}_gptrealtime2_${TAG}
+
+# 8c3. GPT-Realtime-2 via response.create input + forced tool call
+# python src/main.py \
+#     experiment=inference/transcribe_gptrealtime2_response_input_tool \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     task_name=inf_${DATASET}_gptrealtime2_response_input_tool_${TAG}
 
 # 8d. Gemini 2.5 Flash + canonical IPA prompt
 # python src/main.py \
@@ -157,7 +181,7 @@ python src/main.py \
 #     task_name=inf_${DATASET}_gptrealtime2_canonical_${TAG}
 
 # 8f. Qwen2.5-Omni-3B via vLLM-Omni (plain + canonical IPA prompts)
-# start_qwen25_vllm
+# start_qwen25_vllm || { echo "Aborting: vLLM-Omni server failed to start" >&2; exit 1; }
 # trap stop_qwen25_vllm EXIT
 # python src/main.py \
 #     experiment=inference/transcribe_qwen25omni3b \
@@ -166,6 +190,7 @@ python src/main.py \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.port=${QWEN25_VLLM_PORT} \
+#     inference.num_workers=1 \
 #     task_name=inf_${DATASET}_qwen25omni3b_${TAG}
 # python src/main.py \
 #     experiment=inference/transcribe_qwen25omni3b \
@@ -177,39 +202,107 @@ python src/main.py \
 #     data.require_canonical=True \
 #     inference.port=${QWEN25_VLLM_PORT} \
 #     task_name=inf_${DATASET}_qwen25omni3b_canonical_${TAG}
+# vLLM-Omni shutdown is slow (~25 min). When Qwen3 blocks below are enabled
+# we must pay it now to free the GPU; when they are commented out, the
+# post-scoring stop_qwen25_vllm at the bottom of this script runs instead.
+
+# 8g. Qwen3-Omni-30B-A3B-Instruct via vLLM-Omni
+# Sequential with 8h: a single 80 GB GPU can only hold one 30 B Qwen3-Omni
+# model at a time. We start Instruct, run inference, then stop it before
+# launching Thinking.
 # stop_qwen25_vllm
 # trap - EXIT
+# start_qwen3_vllm "Qwen/Qwen3-Omni-30B-A3B-Instruct" \
+#     || { echo "Aborting: Qwen3-Instruct vLLM failed to start" >&2; exit 1; }
+# trap stop_qwen3_vllm EXIT
+# python src/main.py \
+#     experiment=inference/transcribe_qweninstruct \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.port=${QWEN3_VLLM_PORT} \
+#     inference.num_workers=1 \
+#     task_name=inf_${DATASET}_qweninstruct_${TAG}
+# stop_qwen3_vllm
+# trap - EXIT
 
-# 8g. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
+# 8h. Qwen3-Omni-30B-A3B-Thinking via vLLM-Omni
+# start_qwen3_vllm "Qwen/Qwen3-Omni-30B-A3B-Thinking" \
+#     || { echo "Aborting: Qwen3-Thinking vLLM failed to start" >&2; exit 1; }
+# trap stop_qwen3_vllm EXIT
+# python src/main.py \
+#     experiment=inference/transcribe_qwenthinking \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     inference.port=${QWEN3_VLLM_PORT} \
+#     inference.num_workers=1 \
+#     task_name=inf_${DATASET}_qwenthinking_${TAG}
+# stop_qwen3_vllm
+# trap - EXIT
+
+# 9. BabAR (BabyHuBERT + MLP phoneme head, TinyVox-trained)
 python src/main.py \
     experiment=inference/transcribe_babar \
     data=powsmeval \
+    data.dataset_name=${DATASET} \
     data.data_dir=$DATA_DIR \
     data.portable_wavscp=True \
     task_name=inf_${DATASET}_babar_${TAG}
 
-# 9. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
-# python src/main.py \
-#     experiment=inference/transcribe_huper \
-#     data=powsmeval \
-#     data.data_dir=$DATA_DIR \
-#     data.portable_wavscp=True \
-#     task_name=inf_${DATASET}_huper_${TAG}
+# 10. HuPER (WavLM phone recognizer, ARPAbet -> IPA)
+python src/main.py \
+    experiment=inference/transcribe_huper \
+    data=powsmeval \
+    data.dataset_name=${DATASET} \
+    data.data_dir=$DATA_DIR \
+    data.portable_wavscp=True \
+    task_name=inf_${DATASET}_huper_${TAG}
 
-# 10. HuPER Corrector (audio + canonical IPA -> realized IPA)
+# 11. HuPER Corrector (audio + canonical IPA -> realized IPA)
 # python src/main.py \
 #     experiment=inference/transcribe_huper_corrector \
 #     data=powsmeval \
+#     data.dataset_name=${DATASET} \
 #     data.data_dir=$DATA_DIR \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.canonical_file=$DATA_DIR/$DATASET/text.canonical \
 #     task_name=inf_${DATASET}_huper_corrector_${TAG}
 
+# 12a. Azure Pronunciation Assessment scripted
+#      (audio + word-level canonical script -> IPA phones)
+# Requires AZURE_SPEECH_KEY, AZURE_SPEECH_REGION, and text_word.canonical.
+# L2 Arctic currently has text.canonical but no text_word.canonical, so this
+# block is left commented unless word-level canonical text is added.
+# python src/main.py \
+#     experiment=inference/transcribe_azure_pronunciation \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_word_canonical=True \
+#     inference.inference_runner.use_reference_text=True \
+#     task_name=inf_${DATASET}_azure_scripted_${TAG}
+
+# 12b. Azure Pronunciation Assessment unscripted
+#      (audio only, no target word-level canonical script)
+# python src/main.py \
+#     experiment=inference/transcribe_azure_pronunciation \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR \
+#     data.portable_wavscp=True \
+#     data.require_word_canonical=False \
+#     inference.inference_runner.use_reference_text=False \
+#     task_name=inf_${DATASET}_azure_unscripted_${TAG}
+
 # ===== Scoring ================================================================
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical babar huper huper_corrector)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gptrealtime2_response_input_tool gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
 
 for mv in "${MODELS[@]}"; do
     task_name="inf_${DATASET}_${mv}_${TAG}"
@@ -244,6 +337,12 @@ for mv in "${MODELS[@]}"; do
         --canonical_file "$DATA_DIR/$DATASET/text.canonical"
     echo "    results: $run_dir/inventory_results.csv"
 done
+
+# stop_qwen25_vllm
+# trap - EXIT
+
+# stop_qwen3_vllm
+# trap - EXIT
 
 echo
 echo "=== DONE: $(date) ==="
