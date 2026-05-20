@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 #SBATCH -J cmu_kids_final_kaldi_all_eval
-#SBATCH -p gpu
-# Qwen3-Omni-30B at bf16 needs ~60 GB VRAM; request an 80 GB-class GPU.
+#SBATCH -p gpu_test
+# API-backed Gemini/GPT-audio runs do not need an 80 GB H100; use gpu_test.
 #SBATCH --gres=gpu:1
-#SBATCH --constraint=h100
+#SBATCH --constraint=a100-mig
 #SBATCH -c 8
-#SBATCH --mem=256G
+#SBATCH --mem=48G
 #SBATCH -t 12:00:00
 #SBATCH -o /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 #SBATCH -e /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 
-# Run PRiSM phoneme models on cmu_kids_final_kaldi (Kaldi-style eval set), then score PER + inventory.
+# Score existing cmu_kids_final_kaldi inference outputs. This script does not
+# rerun inference or rebuild transcription.json from JSONL shards.
 # Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/cmu_kids.sh
 
 set -u
@@ -21,10 +22,6 @@ export HF_HOME="${HF_HOME:-/n/iqss_sponsored/Lab/zshi/.cache/huggingface}"
 cd /n/iqss_sponsored/Lab/zshi/PhonBenchDev
 # shellcheck disable=SC1091
 source .venv/bin/activate
-export QWEN25_VLLM_BIN=/n/iqss_sponsored/Lab/zshi/vllm-omni-env/.venv/bin/vllm
-export QWEN3_VLLM_BIN=/n/iqss_sponsored/Lab/zshi/vllm-omni-env-src/.venv/bin/vllm
-# shellcheck disable=SC1091
-source scripts/bash_scripts/vllm_helpers.sh
 
 DATA_DIR=/n/iqss_sponsored/Lab/zshi/prism-evalsets
 DATASET=cmu_kids_final_kaldi
@@ -42,14 +39,14 @@ TAG=$(date +%Y%m%d_%H%M%S)
 #     task_name=inf_${DATASET}_powsm_${TAG}
 
 # 2. POWSM-CTC (CTC only)
-python src/main.py \
-    experiment=inference/transcribe_powsm_ctc \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR/$DATASET \
-    data.portable_wavscp=True \
-    inference.num_workers=1 \
-    task_name=inf_${DATASET}_powsm_ctc_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_powsm_ctc \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR/$DATASET \
+#     data.portable_wavscp=True \
+#     inference.num_workers=1 \
+#     task_name=inf_${DATASET}_powsm_ctc_${TAG}
 
 # 3. W2V2P-LV60
 # python src/main.py \
@@ -62,14 +59,14 @@ python src/main.py \
 #     task_name=inf_${DATASET}_lv60_${TAG}
 
 # 4. W2V2P-XLSR53
-python src/main.py \
-    experiment=inference/transcribe_w2v2ph \
-    data=powsmeval \
-    data.dataset_name=${DATASET} \
-    data.data_dir=$DATA_DIR/$DATASET \
-    data.portable_wavscp=True \
-    inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
-    task_name=inf_${DATASET}_xlsr53_${TAG}
+# python src/main.py \
+#     experiment=inference/transcribe_w2v2ph \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR/$DATASET \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.hf_repo=facebook/wav2vec2-xlsr-53-espeak-cv-ft \
+#     task_name=inf_${DATASET}_xlsr53_${TAG}
 
 # 5. MultiIPA (ctag)
 # python src/main.py \
@@ -92,14 +89,14 @@ python src/main.py \
 #     task_name=inf_${DATASET}_zipactc_${TAG}
 
 # 7. ZIPA-CTC-NS
-# python src/main.py \
-#     experiment=inference/transcribe_zipactc \
-#     data=powsmeval \
-#     data.dataset_name=${DATASET} \
-#     data.data_dir=$DATA_DIR/$DATASET \
-#     data.portable_wavscp=True \
-#     inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
-#     task_name=inf_${DATASET}_zipactc_ns_${TAG}
+#  python src/main.py \
+#      experiment=inference/transcribe_zipactc \
+#      data=powsmeval \
+#      data.dataset_name=${DATASET} \
+#      data.data_dir=$DATA_DIR/$DATASET \
+#      data.portable_wavscp=True \
+#      inference.inference_runner.hf_repo=anyspeech/zipa-large-crctc-ns-800k \
+#      task_name=inf_${DATASET}_zipactc_ns_${TAG}
 
 # 8a. Gemini 2.5 Flash (default in transcribe_gemini.yaml)
 # python src/main.py \
@@ -120,6 +117,16 @@ python src/main.py \
 #     data.portable_wavscp=True \
 #     inference.inference_runner.client_config.model_name=gemini-3-flash-preview \
 #     task_name=inf_${DATASET}_gemini3_${TAG}
+
+# 8b2. Gemini 3.5 Flash (stable model id)
+# python src/main.py \
+#     experiment=inference/transcribe_gemini \
+#     data=powsmeval \
+#     data.dataset_name=${DATASET} \
+#     data.data_dir=$DATA_DIR/$DATASET \
+#     data.portable_wavscp=True \
+#     inference.inference_runner.client_config.model_name=gemini-3.5-flash \
+#     task_name=inf_${DATASET}_gemini35_${TAG}
 
 # 8c. GPT-audio-1.5
 # python src/main.py \
@@ -301,29 +308,36 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gptrealtime2_response_input_tool gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
+MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gemini35 gptaudio gptrealtime2 gptrealtime2_response_input_tool gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
+RUNS_ROOT=/n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs
 
 for mv in "${MODELS[@]}"; do
-    task_name="inf_${DATASET}_${mv}_${TAG}"
-    out_base="/n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs/${task_name}"
+    pattern="${RUNS_ROOT}/inf_${DATASET}_${mv}_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]"
 
-    # Hydra writes to <out_base>/<timestamp>/ — pick the newest.
-    run_dir=$(find "$out_base" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-                | sort -nr | awk 'NR==1 {print $2}')
-    if [[ -z "$run_dir" ]]; then
-        echo "SKIP $mv: no hydra run dir under $out_base"
+    # Score every matching non-Old Hydra run dir, newest first.
+    mapfile -t run_dirs < <(find $pattern -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+                | awk '$2 !~ "/exp/runs/Old/"' \
+                | sort -nr | awk '{print $2}')
+    if [[ ${#run_dirs[@]} -eq 0 ]]; then
+        echo "SKIP $mv: no non-Old hydra run dir matching $pattern"
         continue
     fi
 
-    # Merge per-worker transcription.<i>.jsonl -> transcription.json
-    python scripts/jsonl2json.py --dirname "$run_dir"
+    for run_dir in "${run_dirs[@]}"; do
+        if [[ -s "$run_dir/inventory_results.txt" ]]; then
+            echo "SKIP $mv: already evaluated ($run_dir/inventory_results.txt)"
+            continue
+        fi
 
-    pred="$run_dir/transcription.json"
-    if [[ ! -s "$pred" ]]; then
-        echo "SKIP $mv: empty/missing $pred"
-        continue
-    fi
-    if python - "$pred" <<'PY'
+        # Merge per-worker transcription.<i>.jsonl -> transcription.json
+        python scripts/jsonl2json.py --dirname "$run_dir"
+
+        pred="$run_dir/transcription.json"
+        if [[ ! -s "$pred" ]]; then
+            echo "SKIP $mv: empty/missing $pred"
+            continue
+        fi
+        if python - "$pred" <<'PY'
 import json
 import sys
 
@@ -335,22 +349,23 @@ if all(str(key).startswith("__error__") for key in data):
     raise SystemExit(0)
 raise SystemExit(1)
 PY
-    then
-        echo "SKIP $mv: transcription contains only worker setup errors"
-        continue
-    fi
+        then
+            echo "SKIP $mv: transcription contains only worker setup errors"
+            continue
+        fi
 
-    echo "--- $mv ---"
-    python -m src.metrics.phone_recognition \
-        --evaluation_name "$mv" \
-        --prediction_file "$pred" \
-        --output_file "$run_dir/inventory_results.csv" \
-        --gt_field target \
-        --pred_field processed_transcript \
-        --key_field utt_id \
-        --language_field lang_sym \
-        --canonical_file "$DATA_DIR/$DATASET/text.canonical"
-    echo "    results: $run_dir/inventory_results.csv"
+        echo "--- $mv: $run_dir ---"
+        python -m src.metrics.phone_recognition \
+            --evaluation_name "$mv" \
+            --prediction_file "$pred" \
+            --output_file "$run_dir/inventory_results.csv" \
+            --gt_field target \
+            --pred_field processed_transcript \
+            --key_field utt_id \
+            --language_field lang_sym \
+            --canonical_file "$DATA_DIR/$DATASET/text.canonical"
+        echo "    results: $run_dir/inventory_results.csv"
+    done
 done
 
 # stop_qwen25_vllm

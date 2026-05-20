@@ -51,6 +51,18 @@ def test_projection_maps_standalone_open_a_to_aa():
     assert projected == "d eɪ j k ɑ d͡ʒ eɪ f u ʃ i b ɑ ɹ f w ɑ ʃ"
 
 
+def test_projection_keeps_compatibility_affricates_in_all_mdd_sequences():
+    canonical, uttered, predicted = project_ipa_triplet_to_cmu39(
+        "pəʤɑməz",
+        "pəʤɑmə",
+        "pəd͡ʒɑmə",
+    )
+
+    assert canonical == "p ʌ d͡ʒ ɑ m ʌ z"
+    assert uttered == "p ʌ d͡ʒ ɑ m ʌ"
+    assert predicted == "p ʌ d͡ʒ ɑ m ʌ"
+
+
 def test_projection_maps_flaps_with_canonical_context():
     canonical, uttered, predicted = project_ipa_triplet_to_cmu39(
         "t d k",
@@ -85,12 +97,26 @@ def test_projection_drops_unmapped_symbols_and_only_emits_cmu39():
         ("œ", "ɛ"),
         ("ɜ", "ʌ"),
         ("x", "h"),
+        ("ʧ", "t͡ʃ"),
+        ("ʤ", "d͡ʒ"),
+        ("I", "ɪ"),
+        ("U", "ʊ"),
+        ("E", "ɛ"),
+        ("T", "θ"),
+        ("ı", "ɪ"),
+        ("ε", "ɛ"),
         ("t͡s", "t s"),
         ("d͡ʑ", "d͡ʒ"),
     ],
 )
 def test_projection_maps_model_vocab_non_cmu39_symbols(raw, expected):
     assert project_ipa_to_cmu39(raw, raw) == expected
+
+
+def test_projection_drops_audio_gap_and_extra_audit_diacritics():
+    assert project_ipa_to_cmu39("p AUDIOGAP ṇ pɑə̐li wɑtə˺", "") == (
+        "p n p ɑ ʌ l i w ɑ t ʌ"
+    )
 
 
 def test_model_vocab_tokens_are_mapped_or_intentionally_dropped():

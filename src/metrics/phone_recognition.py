@@ -805,9 +805,9 @@ class PhoneRecognitionEvaluator:
             if (fa_sum + tr_sum) > 0:
                 summary.FAR = fa_sum / (fa_sum + tr_sum)
             if (tr_sum + fr_sum) > 0:
-                summary.MDD_Precision = tr_sum / (tr_sum + fr_sum)
+                summary.MDD_Precision = cd_sum / (tr_sum + fr_sum)
             if (tr_sum + fa_sum) > 0:
-                summary.MDD_Recall = tr_sum / (tr_sum + fa_sum)
+                summary.MDD_Recall = cd_sum / (tr_sum + fa_sum)
             if (
                 summary.MDD_Precision is not None
                 and summary.MDD_Recall is not None
@@ -848,10 +848,10 @@ class PhoneRecognitionEvaluator:
                         joint_fa_sum / (joint_fa_sum + joint_tr_sum))
                 if (joint_tr_sum + joint_fr_sum) > 0:
                     summary.Joint_MDD_Precision = (
-                        joint_tr_sum / (joint_tr_sum + joint_fr_sum))
+                        joint_cd_sum / (joint_tr_sum + joint_fr_sum))
                 if (joint_tr_sum + joint_fa_sum) > 0:
                     summary.Joint_MDD_Recall = (
-                        joint_tr_sum / (joint_tr_sum + joint_fa_sum))
+                        joint_cd_sum / (joint_tr_sum + joint_fa_sum))
                 if (
                     summary.Joint_MDD_Precision is not None
                     and summary.Joint_MDD_Recall is not None

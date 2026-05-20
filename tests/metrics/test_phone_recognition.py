@@ -190,6 +190,9 @@ def test_evaluate_with_mdd_cd_de():
     assert summary.CD == 1
     assert summary.DE == 1
     assert summary.TR == 2  # CD + DE
+    assert summary.MDD_Precision == pytest.approx(1 / 3)
+    assert summary.MDD_Recall == pytest.approx(1 / 3)
+    assert summary.MDD_F1 == pytest.approx(1 / 3)
     assert summary.Diagnostic_Accuracy == pytest.approx(0.5)
     assert summary.Diagnostic_Error_Rate == pytest.approx(0.5)
     assert summary.Overall_Diagnostic_Error_Rate == pytest.approx(3 / 10)

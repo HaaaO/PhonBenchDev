@@ -58,15 +58,55 @@ DEFAULT_SUBMIT_TASK_PREFIX = "inf_authentic_kids_kaldi_gemini31pro_batch"
 SUBMIT_PRESETS = {
     "authentic_kids_kaldi": {
         "task_prefix": DEFAULT_SUBMIT_TASK_PREFIX,
+        "evaluation_name": "gemini31pro_batch",
+        "canonical_file": "/n/iqss_sponsored/Lab/zshi/prism-evalsets/authentic_kids_kaldi/text.canonical",
         "overrides": DEFAULT_SUBMIT_OVERRIDES,
     },
     "cmu_kids_final_kaldi": {
         "task_prefix": "inf_cmu_kids_final_kaldi_gemini31pro_batch",
+        "evaluation_name": "gemini31pro_batch",
+        "canonical_file": "/n/iqss_sponsored/Lab/zshi/prism-evalsets/cmu_kids_final_kaldi/text.canonical",
         "overrides": (
             "experiment=inference/transcribe_gemini31pro_batch",
             "data=powsmeval",
             "data.dataset_name=cmu_kids_final_kaldi",
             "data.data_dir=/n/iqss_sponsored/Lab/zshi/prism-evalsets/cmu_kids_final_kaldi",
+            "data.portable_wavscp=True",
+        ),
+    },
+    "test_l2arctic_perceived": {
+        "task_prefix": "inf_test_l2arctic_perceived_gemini31pro_batch",
+        "evaluation_name": "gemini31pro_batch",
+        "canonical_file": "/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets/test_l2arctic_perceived/text.canonical",
+        "overrides": (
+            "experiment=inference/transcribe_gemini31pro_batch",
+            "data=powsmeval",
+            "data.dataset_name=test_l2arctic_perceived",
+            "data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets",
+            "data.portable_wavscp=True",
+        ),
+    },
+    "l2_arctic": {
+        "task_prefix": "inf_test_l2arctic_perceived_gemini31pro_batch",
+        "evaluation_name": "gemini31pro_batch",
+        "canonical_file": "/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets/test_l2arctic_perceived/text.canonical",
+        "overrides": (
+            "experiment=inference/transcribe_gemini31pro_batch",
+            "data=powsmeval",
+            "data.dataset_name=test_l2arctic_perceived",
+            "data.data_dir=/n/netscratch/iqss_sponsored/Lab/zshi/prism-evalsets",
+            "data.portable_wavscp=True",
+        ),
+    },
+    "synthetic_word_kaldi_5_19": {
+        "task_prefix": "inf_synthetic_word_kaldi_5_19_gemini31pro_batch",
+        "evaluation_name": "gemini31pro_batch",
+        "canonical_file": "/n/iqss_sponsored/Lab/zshi/prism-evalsets/synthetic_word_kaldi_5_19/text.canonical",
+        "overrides": (
+            "experiment=inference/transcribe_gemini31pro_batch",
+            "data=powsmeval",
+            "data.dataset_name=synthetic_word_kaldi_5_19",
+            "data.data_dir=/n/iqss_sponsored/Lab/zshi/prism-evalsets/synthetic_word_kaldi_5_19",
             "data.portable_wavscp=True",
         ),
     },
@@ -384,6 +424,37 @@ def submit_overrides(
 
     overrides.extend(user_overrides)
     return overrides
+
+
+def run_dir_batch_config(run_dir: Path) -> dict[str, Any]:
+    config_path = run_dir / "batch_config.json"
+    if not config_path.exists():
+        return {}
+    data = read_json(config_path)
+    return data if isinstance(data, dict) else {}
+
+
+def preset_metadata_from_run_dir(run_dir: Path) -> dict[str, Any]:
+    preset_name = run_dir_batch_config(run_dir).get("preset")
+    if not isinstance(preset_name, str):
+        return {}
+    preset = SUBMIT_PRESETS.get(preset_name, {})
+    return preset if isinstance(preset, dict) else {}
+
+
+def collect_default_evaluation_name(run_dir: Path) -> str:
+    preset_eval = preset_metadata_from_run_dir(run_dir).get("evaluation_name")
+    if isinstance(preset_eval, str) and preset_eval:
+        return preset_eval
+    return run_dir.parent.name
+
+
+def collect_default_canonical_file(run_dir: Path) -> Optional[Path]:
+    preset_canonical = preset_metadata_from_run_dir(run_dir).get("canonical_file")
+    if not isinstance(preset_canonical, str) or not preset_canonical:
+        return None
+    path = Path(preset_canonical).expanduser()
+    return path.resolve() if path.exists() else None
 
 
 def node_to_plain_dict(node: Any) -> dict[str, Any]:
@@ -863,7 +934,7 @@ def infer_canonical_file(manifest: dict[str, dict[str, Any]]) -> Optional[Path]:
         if not audio_path:
             continue
         path = Path(str(audio_path))
-        if path.parent.name == "audio":
+        if path.parent.name in {"audio", "wavs", "wav"}:
             canonical = path.parent.parent / "text.canonical"
             if canonical.exists():
                 return canonical
@@ -926,6 +997,11 @@ def run_evaluation(
     key_field: str,
     language_field: Optional[str],
 ) -> None:
+    result_txt = run_dir / "inventory_results.txt"
+    if result_txt.exists() and result_txt.stat().st_size > 0:
+        print(f"Skipping evaluation; already found {result_txt}", flush=True)
+        return
+
     pred_path = merge_transcription_outputs(run_dir)
     if not pred_path.exists() or pred_path.stat().st_size == 0:
         raise FileNotFoundError(f"Missing/empty merged prediction file: {pred_path}")
@@ -1123,12 +1199,17 @@ def collect(args: argparse.Namespace) -> None:
     )
 
     if not args.no_evaluate:
-        evaluation_name = args.evaluation_name or run_dir.parent.name
+        evaluation_name = args.evaluation_name or collect_default_evaluation_name(run_dir)
+        canonical_file = (
+            Path(args.canonical_file).expanduser().resolve()
+            if args.canonical_file
+            else collect_default_canonical_file(run_dir)
+        )
         run_evaluation(
             run_dir=run_dir,
             manifest_path=manifest_path,
             evaluation_name=evaluation_name,
-            canonical_file=Path(args.canonical_file).expanduser().resolve() if args.canonical_file else None,
+            canonical_file=canonical_file,
             canonical_field=args.canonical_field,
             gt_field=args.gt_field,
             pred_field=args.pred_field,
@@ -1159,9 +1240,9 @@ def add_submit_args(parser: argparse.ArgumentParser) -> None:
         choices=sorted(SUBMIT_PRESETS),
         default=DEFAULT_SUBMIT_PRESET,
         help=(
-            "Default submit preset. Use cmu_kids_final_kaldi to set the "
-            "finalized CMU Kids dataset name, dataset root, task prefix, and "
-            "timestamped run folder. Explicit Hydra overrides still win."
+            "Default submit preset. Available presets set dataset name, "
+            "dataset root, task prefix, and timestamped run folder. Explicit "
+            "Hydra overrides still win."
         ),
     )
     parser.add_argument(

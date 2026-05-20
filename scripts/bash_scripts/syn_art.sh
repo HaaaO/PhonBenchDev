@@ -237,6 +237,10 @@ for mv in "${MODELS[@]}"; do
         echo "SKIP $mv: no hydra run dir under $out_base"
         continue
     fi
+    if [[ -s "$run_dir/inventory_results.txt" ]]; then
+        echo "SKIP $mv: already evaluated ($run_dir/inventory_results.txt)"
+        continue
+    fi
 
     # Merge per-worker transcription.<i>.jsonl -> transcription.json
     python scripts/jsonl2json.py --dirname "$run_dir"

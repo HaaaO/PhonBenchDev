@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
-#SBATCH -J cmu_kids_final_kaldi_all_eval
+#SBATCH -J cmu_kids_qweninstruct
 #SBATCH -p gpu
 # Qwen3-Omni-30B at bf16 needs ~60 GB VRAM; request an 80 GB-class GPU.
-#SBATCH --gres=gpu:1
+#SBATCH --gpus=1
 #SBATCH --constraint=h100
 #SBATCH -c 8
-#SBATCH --mem=256G
-#SBATCH -t 12:00:00
+#SBATCH --mem=48G
+#SBATCH -t 4:00:00
 #SBATCH -o /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 #SBATCH -e /n/iqss_sponsored/Lab/zshi/slurm_logs/%x_%j.out
 
-# Run PRiSM phoneme models on cmu_kids_final_kaldi (Kaldi-style eval set), then score PER + inventory.
-# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/cmu_kids.sh
+# Run Qwen/Qwen3-Omni-30B-A3B-Instruct on cmu_kids_final_kaldi,
+# then score PER + inventory.
+# Submit:  sbatch /n/iqss_sponsored/Lab/zshi/PhonBenchDev/scripts/bash_scripts/cmu_kids_qwen.sh
 
 set -u
 mkdir -p /n/iqss_sponsored/Lab/zshi/slurm_logs
@@ -212,6 +213,10 @@ TAG=$(date +%Y%m%d_%H%M%S)
 # launching Thinking.
 # stop_qwen25_vllm
 # trap - EXIT
+echo
+echo "=== Qwen3 Instruct inference ($(date)) ==="
+echo "model: Qwen/Qwen3-Omni-30B-A3B-Instruct"
+echo "dataset: ${DATA_DIR}/${DATASET}"
 start_qwen3_vllm "Qwen/Qwen3-Omni-30B-A3B-Instruct" \
     || { echo "Aborting: Qwen3-Instruct vLLM failed to start" >&2; exit 1; }
 trap stop_qwen3_vllm EXIT
@@ -300,40 +305,64 @@ python src/main.py \
 echo
 echo "=== Scoring ($(date)) ==="
 
-MODELS=(powsm powsm_ctc lv60 xlsr53 ctag zipactc zipactc_ns gemini gemini3 gptaudio gptrealtime2 gptrealtime2_response_input_tool gemini_canonical gptaudio_canonical gptrealtime2_canonical qwen25omni3b qwen25omni3b_canonical qweninstruct qwenthinking babar huper huper_corrector azure_scripted azure_unscripted)
+MODELS=(qweninstruct)
+RUNS_ROOT=/n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs
 
 for mv in "${MODELS[@]}"; do
-    task_name="inf_${DATASET}_${mv}_${TAG}"
-    out_base="/n/iqss_sponsored/Lab/zshi/PhonBenchDev/exp/runs/${task_name}"
+    pattern="${RUNS_ROOT}/inf_${DATASET}_${mv}_[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]_[0-9][0-9][0-9][0-9][0-9][0-9]"
 
-    # Hydra writes to <out_base>/<timestamp>/ — pick the newest.
-    run_dir=$(find "$out_base" -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
-                | sort -nr | awk 'NR==1 {print $2}')
-    if [[ -z "$run_dir" ]]; then
-        echo "SKIP $mv: no hydra run dir under $out_base"
+    # Score every matching non-Old Hydra run dir, newest first.
+    mapfile -t run_dirs < <(find $pattern -maxdepth 1 -mindepth 1 -type d -printf '%T@ %p\n' 2>/dev/null \
+                | awk '$2 !~ "/exp/runs/Old/"' \
+                | sort -nr | awk '{print $2}')
+    if [[ ${#run_dirs[@]} -eq 0 ]]; then
+        echo "SKIP $mv: no non-Old hydra run dir matching $pattern"
         continue
     fi
 
-    # Merge per-worker transcription.<i>.jsonl -> transcription.json
-    python scripts/jsonl2json.py --dirname "$run_dir"
+    for run_dir in "${run_dirs[@]}"; do
+        if [[ -s "$run_dir/inventory_results.txt" ]]; then
+            echo "SKIP $mv: already evaluated ($run_dir/inventory_results.txt)"
+            continue
+        fi
 
-    pred="$run_dir/transcription.json"
-    if [[ ! -s "$pred" ]]; then
-        echo "SKIP $mv: empty/missing $pred"
-        continue
-    fi
+        # Merge per-worker transcription.<i>.jsonl -> transcription.json
+        python scripts/jsonl2json.py --dirname "$run_dir"
 
-    echo "--- $mv ---"
-    python -m src.metrics.phone_recognition \
-        --evaluation_name "$mv" \
-        --prediction_file "$pred" \
-        --output_file "$run_dir/inventory_results.csv" \
-        --gt_field target \
-        --pred_field processed_transcript \
-        --key_field utt_id \
-        --language_field lang_sym \
-        --canonical_file "$DATA_DIR/$DATASET/text.canonical"
-    echo "    results: $run_dir/inventory_results.csv"
+        pred="$run_dir/transcription.json"
+        if [[ ! -s "$pred" ]]; then
+            echo "SKIP $mv: empty/missing $pred"
+            continue
+        fi
+        if python - "$pred" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], "r", encoding="utf-8") as f:
+    data = json.load(f)
+if not data:
+    raise SystemExit(0)
+if all(str(key).startswith("__error__") for key in data):
+    raise SystemExit(0)
+raise SystemExit(1)
+PY
+        then
+            echo "SKIP $mv: transcription contains only worker setup errors"
+            continue
+        fi
+
+        echo "--- $mv: $run_dir ---"
+        python -m src.metrics.phone_recognition \
+            --evaluation_name "$mv" \
+            --prediction_file "$pred" \
+            --output_file "$run_dir/inventory_results.csv" \
+            --gt_field target \
+            --pred_field processed_transcript \
+            --key_field utt_id \
+            --language_field lang_sym \
+            --canonical_file "$DATA_DIR/$DATASET/text.canonical"
+        echo "    results: $run_dir/inventory_results.csv"
+    done
 done
 
 # stop_qwen25_vllm

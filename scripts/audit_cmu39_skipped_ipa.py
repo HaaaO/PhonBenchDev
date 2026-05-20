@@ -11,7 +11,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import string
 import sys
 import unicodedata
 from collections import Counter, defaultdict
@@ -24,16 +23,12 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from src.core.cmu39_projection import _SCAN_TOKENS  # noqa: E402
+from src.core.cmu39_projection import _clean_for_scan as _project_clean_for_scan  # noqa: E402
 from src.core.ipa_normalization import normalize_ipa_text  # noqa: E402
 
 
 def _clean_for_scan(text: str) -> str:
-    normalized = normalize_ipa_text(text).normalized
-    return "".join(
-        ch
-        for ch in normalized
-        if not ch.isspace() and ch not in string.punctuation
-    )
+    return _project_clean_for_scan(text)
 
 
 def skipped_spans(text: str) -> list[str]:
@@ -182,6 +177,102 @@ def iter_field_values(
             )
 
 
+def iter_transcription_items(
+    obj: Any,
+    *,
+    utt_id: Optional[str] = None,
+    json_path: str = "$",
+) -> Iterator[tuple[dict[str, Any], Optional[str], str]]:
+    if isinstance(obj, dict):
+        local_utt = _utt_from_mapping(obj, utt_id)
+        if "pred" in obj or isinstance(obj.get("passthrough"), dict):
+            yield obj, local_utt, json_path
+            return
+        for key, child in obj.items():
+            yield from iter_transcription_items(
+                child,
+                utt_id=local_utt,
+                json_path=f"{json_path}.{key}",
+            )
+    elif isinstance(obj, list):
+        for idx, child in enumerate(obj):
+            yield from iter_transcription_items(
+                child,
+                utt_id=utt_id,
+                json_path=f"{json_path}[{idx}]",
+            )
+
+
+def iter_eval_field_values(
+    obj: Any,
+) -> Iterator[tuple[str, str, str, Optional[str], str]]:
+    """Yield the exact transcript fields used by CMU39 MDD evaluation.
+
+    Returns ``(value, role, field, utt_id, json_path)``. The prediction role is
+    intentionally limited to ``pred[0].processed_transcript`` because that is
+    the default scoring input.
+    """
+    for item, utt_id, item_path in iter_transcription_items(obj):
+        pred = item.get("pred")
+        if isinstance(pred, list) and pred and isinstance(pred[0], dict):
+            value = pred[0].get("processed_transcript")
+            if isinstance(value, str):
+                yield (
+                    value,
+                    "predicted",
+                    "processed_transcript",
+                    utt_id,
+                    f"{item_path}.pred[0].processed_transcript",
+                )
+        elif isinstance(pred, dict):
+            value = pred.get("processed_transcript")
+            if isinstance(value, str):
+                yield (
+                    value,
+                    "predicted",
+                    "processed_transcript",
+                    utt_id,
+                    f"{item_path}.pred.processed_transcript",
+                )
+
+        passthrough = item.get("passthrough")
+        if not isinstance(passthrough, dict):
+            continue
+        for role, field in (
+            ("uttered", "target"),
+            ("canonical", "canonical_ipa"),
+        ):
+            value = passthrough.get(field)
+            if isinstance(value, str):
+                yield value, role, field, utt_id, f"{item_path}.passthrough.{field}"
+
+
+def _audit_rows_for_value(
+    *,
+    file: Path,
+    utt_id: Optional[str],
+    json_path: str,
+    field: str,
+    role: str,
+    value: str,
+) -> Iterator[dict[str, Any]]:
+    normalized = normalize_ipa_text(value).normalized
+    spans = skipped_spans(value)
+    for span in spans:
+        yield {
+            "file": str(file),
+            "utt_id": utt_id or "",
+            "json_path": json_path,
+            "role": role,
+            "field": field,
+            "skipped_span": span,
+            "codepoints": codepoints(span),
+            "unicode_names": unicode_names(span),
+            "raw_transcript": value,
+            "normalized_transcript": normalized,
+        }
+
+
 def iter_audit_rows(
     files: Iterable[Path],
     *,
@@ -193,22 +284,80 @@ def iter_audit_rows(
         for obj in read_json_or_jsonl(path):
             for value, utt_id, json_path in iter_field_values(obj, field=field):
                 seen_records += 1
-                normalized = normalize_ipa_text(value).normalized
-                spans = skipped_spans(value)
-                for span in spans:
-                    yield {
-                        "file": str(path),
-                        "utt_id": utt_id or "",
-                        "json_path": json_path,
-                        "field": field,
-                        "skipped_span": span,
-                        "codepoints": codepoints(span),
-                        "unicode_names": unicode_names(span),
-                        "raw_transcript": value,
-                        "normalized_transcript": normalized,
-                    }
+                yield from _audit_rows_for_value(
+                    file=path,
+                    utt_id=utt_id,
+                    json_path=json_path,
+                    role=field,
+                    field=field,
+                    value=value,
+                )
                 if max_records is not None and seen_records >= max_records:
                     return
+
+
+def iter_eval_audit_rows(
+    files: Iterable[Path],
+    *,
+    max_records: Optional[int],
+) -> Iterator[dict[str, Any]]:
+    seen_records = 0
+    for path in files:
+        for obj in read_json_or_jsonl(path):
+            for value, role, field, utt_id, json_path in iter_eval_field_values(obj):
+                seen_records += 1
+                yield from _audit_rows_for_value(
+                    file=path,
+                    utt_id=utt_id,
+                    json_path=json_path,
+                    role=role,
+                    field=field,
+                    value=value,
+                )
+                if max_records is not None and seen_records >= max_records:
+                    return
+
+
+def iter_canonical_file_audit_rows(
+    files: Iterable[Path],
+    *,
+    max_records: Optional[int],
+) -> Iterator[dict[str, Any]]:
+    seen_records = 0
+    for path in files:
+        with path.open("r", encoding="utf-8", errors="replace") as f:
+            for line_no, line in enumerate(f, start=1):
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                parts = line.split(maxsplit=1)
+                utt_id = parts[0]
+                value = parts[1] if len(parts) == 2 else ""
+                seen_records += 1
+                yield from _audit_rows_for_value(
+                    file=path,
+                    utt_id=utt_id,
+                    json_path=f"line:{line_no}",
+                    role="canonical_file",
+                    field="text.canonical",
+                    value=value,
+                )
+                if max_records is not None and seen_records >= max_records:
+                    return
+
+
+def discover_canonical_files(
+    roots: Iterable[Path],
+    files: Iterable[Path],
+) -> list[Path]:
+    discovered = {path.expanduser().resolve() for path in files}
+    for root in roots:
+        discovered.update(
+            path
+            for path in root.expanduser().resolve().rglob("text.canonical")
+            if path.is_file()
+        )
+    return sorted(discovered)
 
 
 def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
@@ -217,6 +366,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         "file",
         "utt_id",
         "json_path",
+        "role",
         "field",
         "skipped_span",
         "codepoints",
@@ -258,6 +408,29 @@ def parse_args() -> argparse.Namespace:
         "--field",
         default="processed_transcript",
         help="Transcript field to audit.",
+    )
+    parser.add_argument(
+        "--eval-fields",
+        action="store_true",
+        help=(
+            "Audit the fields used by scoring together: "
+            "pred[0].processed_transcript, passthrough.target, and "
+            "passthrough.canonical_ipa."
+        ),
+    )
+    parser.add_argument(
+        "--canonical-root",
+        action="append",
+        type=Path,
+        default=[],
+        help="Directory to search recursively for Kaldi text.canonical files.",
+    )
+    parser.add_argument(
+        "--canonical-file",
+        action="append",
+        type=Path,
+        default=[],
+        help="Specific Kaldi text.canonical file to include in the audit.",
     )
     parser.add_argument(
         "--include-all-shards",
@@ -314,13 +487,33 @@ def main() -> None:
         args.include_all_shards,
         include_old=args.include_old,
     )
-    rows = list(
-        iter_audit_rows(
-            files,
-            field=args.field,
-            max_records=args.max_records,
+    if args.eval_fields:
+        rows = list(
+            iter_eval_audit_rows(
+                files,
+                max_records=args.max_records,
+            )
         )
+    else:
+        rows = list(
+            iter_audit_rows(
+                files,
+                field=args.field,
+                max_records=args.max_records,
+            )
+        )
+
+    canonical_files = discover_canonical_files(
+        args.canonical_root,
+        args.canonical_file,
     )
+    if canonical_files:
+        rows.extend(
+            iter_canonical_file_audit_rows(
+                canonical_files,
+                max_records=args.max_records,
+            )
+        )
 
     span_counts = Counter(row["skipped_span"] for row in rows)
     examples: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -333,6 +526,8 @@ def main() -> None:
     if not args.include_old:
         print("Excluded: exp/runs/Old")
     print(f"Files inspected: {len(files)}")
+    if canonical_files:
+        print(f"Canonical files inspected: {len(canonical_files)}")
     print(f"Skipped-span instances: {len(rows)}")
     print(f"Unique skipped spans: {len(span_counts)}")
 
@@ -345,6 +540,7 @@ def main() -> None:
                 print(
                     "    "
                     f"utt_id={row['utt_id'] or '?'} "
+                    f"role={row['role']} "
                     f"file={Path(row['file']).parent.name}/{Path(row['file']).name} "
                     f"raw={row['raw_transcript']!r}"
                 )

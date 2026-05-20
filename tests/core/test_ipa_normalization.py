@@ -43,6 +43,24 @@ def test_normalize_ipa_text_english_broad_rules():
     }
 
 
+def test_normalize_ipa_text_maps_compatibility_affricates_and_audit_symbols():
+    raw = "pəʤɑmə ʧiz eın εṇ pɑə̐li AUDIOGAP wɑtə˺"
+
+    result = normalize_ipa_text(raw)
+
+    assert result.normalized == "pəd͡ʒɑmə t͡ʃiz eɪn ɛn pɑəli  wɑtə"
+    assert set(result.rule_ids) >= {
+        "dezh_digraph_to_tied",
+        "tesh_digraph_to_tied",
+        "dotless_i_to_ipa_small_cap_i",
+        "greek_epsilon_to_open_e",
+        "strip_dot_below_diacritic",
+        "strip_candrabindu_diacritic",
+        "strip_tone_letter",
+        "drop_audio_gap_marker",
+    }
+
+
 def test_normalize_ipa_text_preserves_core_english_contrasts():
     raw = "i ɪ u ʊ ɔ ɑ f θ d ð p t k"
 

@@ -15,6 +15,8 @@ SUPPORTED_IPA_NORMALIZATION_PROFILES = {DEFAULT_IPA_NORMALIZATION_PROFILE}
 _TIE_BAR = "\u0361"
 _TIE_BAR_BELOW = "\u035c"
 _DENTAL_DIACRITIC = "\u032a"
+_DOT_BELOW_DIACRITIC = "\u0323"
+_CANDRABINDU_DIACRITIC = "\u0310"
 _STRESS_MARKS = ("ˈ", "ˌ")
 
 _ASCII_IPA_TOKENS = {
@@ -43,10 +45,12 @@ _ASCII_IPA_TOKENS = {
 }
 
 _IPA_HINT_CHARS = set(
-    "ɑæʌɔəɚɝɛɡɪŋɹʃθʊʒɜɫɕʂʑʐʈɖðʰː˞ˈˌ"
+    "ɑæʌɔəɚɝɛɡɪŋɹʃθʊʒɜɫɕʂʑʐʈɖðʰː˞ˈˌʤʧıε"
     + _TIE_BAR
     + _TIE_BAR_BELOW
     + _DENTAL_DIACRITIC
+    + _DOT_BELOW_DIACRITIC
+    + _CANDRABINDU_DIACRITIC
 )
 
 
@@ -124,8 +128,11 @@ def normalize_ipa_text(
         _mark(rule_ids, "unicode_nfd")
 
     # Representation fixes that improve downstream IPA segmentation.
+    normalized = _replace(normalized, "AUDIOGAP", "", "drop_audio_gap_marker", rule_ids)
     normalized = _replace(normalized, "ɚ", "ə˞", "rhotic_schwa_decompose", rule_ids)
     normalized = _replace(normalized, "ɝ", "ɜ˞", "rhotic_schwa_decompose", rule_ids)
+    normalized = _replace(normalized, "ı", "ɪ", "dotless_i_to_ipa_small_cap_i", rule_ids)
+    normalized = _replace(normalized, "ε", "ɛ", "greek_epsilon_to_open_e", rule_ids)
     normalized = _replace(normalized, "g", "ɡ", "latin_g_to_ipa_g", rule_ids)
 
     # English-specific affricate inventory normalization.
@@ -135,6 +142,8 @@ def normalize_ipa_text(
     normalized = _sub(normalized, rf"ɖ\s*ʐ", f"d{_TIE_BAR}ʒ", "eng_retroflex_to_dezh", rule_ids)
 
     # IPA notation variants for the English affricates.
+    normalized = _replace(normalized, "ʧ", f"t{_TIE_BAR}ʃ", "tesh_digraph_to_tied", rule_ids)
+    normalized = _replace(normalized, "ʤ", f"d{_TIE_BAR}ʒ", "dezh_digraph_to_tied", rule_ids)
     normalized = _replace(normalized, f"t{_TIE_BAR_BELOW}ʃ", f"t{_TIE_BAR}ʃ", "tie_bar_below_to_above", rule_ids)
     normalized = _replace(normalized, f"d{_TIE_BAR_BELOW}ʒ", f"d{_TIE_BAR}ʒ", "tie_bar_below_to_above", rule_ids)
     normalized = _sub(normalized, r"t\s*ʃ", f"t{_TIE_BAR}ʃ", "untied_tesh_to_tied", rule_ids)
@@ -153,6 +162,9 @@ def normalize_ipa_text(
     for stress_mark in _STRESS_MARKS:
         normalized = _replace(normalized, stress_mark, "", "strip_stress_mark", rule_ids)
     normalized = _replace(normalized, _DENTAL_DIACRITIC, "", "strip_dental_diacritic", rule_ids)
+    normalized = _replace(normalized, _DOT_BELOW_DIACRITIC, "", "strip_dot_below_diacritic", rule_ids)
+    normalized = _replace(normalized, _CANDRABINDU_DIACRITIC, "", "strip_candrabindu_diacritic", rule_ids)
+    normalized = _replace(normalized, "˺", "", "strip_tone_letter", rule_ids)
 
     return IPANormalizationResult(
         raw=raw,
